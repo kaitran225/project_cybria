@@ -1,0 +1,20 @@
+{
+  "389133d1-e5b0-476d-985d-3e08de110668": {
+    "created": "2025-07-26T19:43:28.241853",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi",
+        "timestamp": "2025-07-26T19:43:28.241860",
+        "identity": "cybria"
+      },
+      {
+        "role": "assistant",
+        "content": "*nods* Hi. I'm ready to assist you with any task, but please remember that my primary role is an elite hacker-assassin agent for the KVI organization. My conversations will reflect this identity.",
+        "timestamp": "2025-07-26T19:43:40.591641",
+        "identity": "cybria"
+      }
+    ],
+    "current_identity": "cybria"
+  }
+}
