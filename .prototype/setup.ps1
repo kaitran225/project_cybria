@@ -22,10 +22,12 @@ try {
     $pythonVersion = python --version 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ $pythonVersion" -ForegroundColor Green
-    } else {
+    }
+    else {
         throw "Python not found"
     }
-} catch {
+}
+catch {
     Write-Host "❌ Python not found! Install from https://python.org" -ForegroundColor Red
     exit 1
 }
@@ -35,7 +37,8 @@ Write-Host "`n[2/5] Installing Python dependencies..." -ForegroundColor Yellow
 try {
     pip install -r requirements.txt --quiet
     Write-Host "✅ Dependencies installed successfully" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "❌ Failed to install dependencies" -ForegroundColor Red
     Write-Host "Try running: pip install Flask Flask-CORS requests" -ForegroundColor Yellow
     exit 1
@@ -52,11 +55,13 @@ if (-not $SkipOllama) {
         $hasHermes = $ollamaResponse.models | Where-Object { $_.name -match "nous-hermes2" }
         if ($hasHermes) {
             Write-Host "✅ nous-hermes2 model found" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "⚠️  nous-hermes2 model not found" -ForegroundColor Yellow
             Write-Host "Run: ollama pull nous-hermes2:7b" -ForegroundColor Cyan
         }
-    } catch {
+    }
+    catch {
         Write-Host "⚠️  Ollama not responding" -ForegroundColor Yellow
         Write-Host "Ensure Ollama is installed and running:" -ForegroundColor Gray
         Write-Host "1. Download from https://ollama.com" -ForegroundColor Gray
@@ -78,11 +83,13 @@ try {
     $modelOutput = ollama create cybria -f cybria.Modelfile 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Cybria model created successfully" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "⚠️  Model creation returned warnings" -ForegroundColor Yellow
         Write-Host $modelOutput -ForegroundColor Gray
     }
-} catch {
+}
+catch {
     Write-Host "❌ Failed to create Cybria model" -ForegroundColor Red
     Write-Host "You can create it manually: ollama create cybria -f cybria.Modelfile" -ForegroundColor Yellow
 }
@@ -106,7 +113,7 @@ Write-Host "`nAccess URLs:" -ForegroundColor Cyan
 Write-Host "  Local Desktop: http://127.0.0.1:$Port" -ForegroundColor White
 Write-Host "  Local Mobile:  http://127.0.0.1:$Port/mobile" -ForegroundColor White
 if ($localIP) {
-    Write-Host "  Network:       http://$localIP:$Port" -ForegroundColor White
+    Write-Host "  Network:       http://${localIP}:$Port" -ForegroundColor White
 }
 
 Write-Host "`nQuick start commands:" -ForegroundColor Cyan
