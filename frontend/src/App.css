@@ -1,0 +1,75 @@
+/* App styles */
+
+/* Global styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #121212;
+  color: #e0e0e0;
+  line-height: 1.6;
+}
+
+/* App container */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.app-container {
+  display: flex;
+  flex: 1;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 90vh;
+}
+
+/* Responsive layout */
+@media (max-width: 1024px) {
+  .app-container {
+    flex-direction: column;
+    height: auto;
+  }
+  
+  .avatar-section, .chat-section {
+    width: 100% !important;
+  }
+}
+
+/* Avatar section */
+.avatar-section {
+  width: 50%;
+  background-color: #1a1a1a;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chat section */
+.chat-section {
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Avatar info */
+.avatar-info {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #212121;
+  border-radius: 8px;
+}
+
+.avatar-info p {
+  margin: 5px 0;
+  font-size: 0.9rem;
+}
