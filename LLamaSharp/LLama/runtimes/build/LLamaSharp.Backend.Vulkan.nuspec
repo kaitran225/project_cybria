@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package >
+    <metadata>
+        <id>LLamaSharp.Backend.Vulkan</id>
+        <version>$version$</version>
+        <title>LLamaSharp.Backend.Vulkan, the backend for LLamaSharp</title>
+        <authors>llama.cpp Authors</authors>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <license type="expression">MIT</license>
+        <icon>icon512.png</icon>
+        <projectUrl>https://github.com/SciSharp/LLamaSharp</projectUrl>
+        <description>LLamaSharp.Backend.Vulkan is a backend for LLamaSharp to use with Vulkan.</description>
+        <releaseNotes></releaseNotes>
+        <copyright>Copyright 2023 The llama.cpp Authors. All rights reserved.</copyright>
+        <tags>LLamaSharp LLama LLM GPT AI ChatBot SciSharp</tags>
+
+        <!-- Dependencies on platform-specific packages -->
+        <dependencies>
+            <dependency id="LLamaSharp.Backend.Vulkan.Windows" version="$version$" />
+            <dependency id="LLamaSharp.Backend.Vulkan.Linux" version="$version$" />
+        </dependencies>
+    </metadata>
+
+    <files>
+        <file src="LLamaSharpBackend.props" target="build/netstandard2.0/LLamaSharp.Backend.Vulkan.props" />
+        <file src="icon512.png" target="icon512.png" />
+    </files>
+</package>

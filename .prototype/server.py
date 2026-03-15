@@ -293,7 +293,7 @@ def get_local_ip():
         return "127.0.0.1"
 
 if __name__ == '__main__':
-    print("🧠 Cybria AI Assistant Web Server")
+    print("[*] Cybria AI Assistant Web Server")
     print("=" * 40)
     
     local_ip = get_local_ip()
@@ -318,6 +318,6 @@ if __name__ == '__main__':
             threaded=True
         )
     except KeyboardInterrupt:
-        print("\n👋 Server stopped by user")
+        print("\n[*] Server stopped by user")
     except Exception as e:
-        print(f"❌ Server error: {e}")
+        print(f"[!] Server error: {e}")
