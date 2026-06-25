@@ -1,0 +1,11 @@
+[package]
+name = "fbx-viewer"
+version = "0.1.0"
+edition = "2021"
+description = "Small UI to inspect FBX files with fbxcel"
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+rfd = "0.15"
+fbxcel = { path = "../../reference/fbxcel", features = ["tree"] }
