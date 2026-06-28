@@ -1,0 +1,342 @@
+import type { App, Component, TFile } from 'obsidian';
+import { getSettings } from '../Config/Settings';
+import { postponeButtonTitle, shouldShowPostponeButton } from '../DateTime/Postponer';
+import type { IQuery } from '../IQuery';
+import { QueryLayout } from '../Layout/QueryLayout';
+import { TaskLayout } from '../Layout/TaskLayout';
+import type { GroupDisplayHeading } from '../Query/Group/GroupDisplayHeading';
+import type { QueryResult } from '../Query/QueryResult';
+import type { TasksFile } from '../Scripting/TasksFile';
+import type { ListItem } from '../Task/ListItem';
+import type { Task } from '../Task/Task';
+import { PostponeMenu } from '../ui/Menus/PostponeMenu';
+import { showMenu } from '../ui/Menus/TaskEditingMenu';
+import type { BacklinksEventHandler, EditButtonClickHandler } from './QueryResultsRenderer';
+import { QueryResultsRendererBase } from './QueryResultsRendererBase';
+import { TaskLineRenderer, type TextRenderer, createAndAppendElement } from './TaskLineRenderer';
+
+/**
+ * Represent the parameters required for rendering a query with {@link QueryResultsRenderer}.
+ *
+ * This interface contains all the necessary properties and handlers to manage
+ * and display query results such as tasks, markdown files, and certain event handlers
+ * for user interactions, like handling backlinks and editing tasks.
+ */
+export interface HTMLQueryRendererParameters {
+    allTasks: () => Task[];
+    allMarkdownFiles: () => TFile[];
+    backlinksClickHandler: BacklinksEventHandler;
+    backlinksMousedownHandler: BacklinksEventHandler;
+    editTaskPencilClickHandler: EditButtonClickHandler;
+}
+
+/**
+ * HTML-specific implementation of {@link QueryResultsRendererBase} abstract class.
+ *
+ * @example
+ *   this.htmlRenderer.content = content;
+ *   await this.htmlRenderer.renderQuery(state, tasks);
+ */
+export class HtmlQueryResultsRenderer extends QueryResultsRendererBase {
+    // Renders the group heading in this class:
+    protected readonly renderMarkdown;
+    protected readonly obsidianComponent: Component | null;
+    protected readonly obsidianApp: App;
+
+    private readonly taskLineRenderer: TaskLineRenderer;
+
+    // document.createElement() creates dummy elements that must be overwritten later
+    // with the values of elements that will be rendered
+    public content: HTMLDivElement = document.createElement('div');
+    private readonly ulElementStack: HTMLUListElement[] = [];
+    private lastLIElement: HTMLLIElement = document.createElement('li');
+
+    private readonly htmlQueryRendererParameters: HTMLQueryRendererParameters;
+
+    constructor(
+        renderMarkdown: (
+            app: App,
+            markdown: string,
+            el: HTMLElement,
+            sourcePath: string,
+            component: Component,
+        ) => Promise<void>,
+        obsidianComponent: Component | null,
+        obsidianApp: App,
+        textRenderer: TextRenderer,
+        htmlQueryRendererParameters: HTMLQueryRendererParameters,
+        source: string,
+        tasksFile: TasksFile,
+        query: IQuery,
+    ) {
+        super(source, tasksFile, query);
+
+        this.renderMarkdown = renderMarkdown;
+        this.obsidianComponent = obsidianComponent;
+        this.obsidianApp = obsidianApp;
+        this.htmlQueryRendererParameters = htmlQueryRendererParameters;
+
+        this.taskLineRenderer = new TaskLineRenderer({
+            textRenderer: textRenderer,
+            obsidianApp: obsidianApp,
+            obsidianComponent: obsidianComponent,
+            taskLayoutOptions: query.taskLayoutOptions,
+            queryLayoutOptions: query.queryLayoutOptions,
+        });
+    }
+
+    protected beginRender(): void {
+        return;
+    }
+
+    protected renderSearchResultsHeader(queryResult: QueryResult): void {
+        if (getSettings().searchResults.taskCountLocation === 'top') {
+            this.addTaskCount(queryResult);
+        }
+    }
+
+    protected renderSearchResultsFooter(queryResult: QueryResult): void {
+        if (getSettings().searchResults.taskCountLocation !== 'top') {
+            this.addTaskCount(queryResult);
+        }
+    }
+
+    protected renderErrorMessage(errorMessage: string): void {
+        const container = createAndAppendElement('div', this.content);
+        const pre = createAndAppendElement('pre', container);
+        pre.textContent = `Tasks query: ${errorMessage}`;
+    }
+
+    protected renderLoadingMessage(): void {
+        this.content.textContent = 'Loading Tasks ...';
+    }
+
+    protected renderExplanation(explanation: string | null) {
+        const explanationsBlock = createAndAppendElement('pre', this.content);
+        explanationsBlock.classList.add('plugin-tasks-query-explanation');
+        explanationsBlock.textContent = explanation;
+    }
+
+    protected beginTaskList(): void {
+        const isFirstTaskListInContainer = this.ulElementStack.length === 0;
+        const taskListContainer = isFirstTaskListInContainer ? this.content : this.lastLIElement;
+        const taskList = createAndAppendElement('ul', taskListContainer);
+
+        taskList.classList.add(
+            'contains-task-list',
+            'plugin-tasks-query-result',
+            ...new TaskLayout(this.query.taskLayoutOptions).generateHiddenClasses(),
+            ...new QueryLayout(this.query.queryLayoutOptions).getHiddenClasses(),
+        );
+
+        const groupingAttribute = this.getGroupingAttribute();
+        if (groupingAttribute && groupingAttribute.length > 0) {
+            taskList.dataset.taskGroupBy = groupingAttribute;
+        }
+
+        this.ulElementStack.push(taskList);
+    }
+
+    protected endTaskList(): void {
+        this.ulElementStack.pop();
+    }
+
+    protected beginListItem(): void {
+        const taskList = this.currentULElement();
+        this.lastLIElement = createAndAppendElement('li', taskList);
+    }
+
+    protected async addListItem(listItem: ListItem, listItemIndex: number): Promise<void> {
+        await this.taskLineRenderer.renderListItem(this.lastLIElement, listItem, listItemIndex);
+    }
+
+    protected async addTask(task: Task, taskIndex: number): Promise<void> {
+        const isFilenameUnique = this.isFilenameUnique({ task }, this.htmlQueryRendererParameters.allMarkdownFiles());
+        const listItem = this.lastLIElement;
+
+        await this.taskLineRenderer.renderTaskLine({
+            li: listItem,
+            task,
+            taskIndex,
+            isTaskInQueryFile: this.filePath === task.path,
+            isFilenameUnique,
+        });
+
+        // Remove all footnotes. They don't re-appear in another document.
+        const footnotes = listItem.querySelectorAll('[data-footnote-id]');
+        footnotes.forEach((footnote) => footnote.remove());
+
+        const extrasSpan = createAndAppendElement('span', listItem);
+        extrasSpan.classList.add('task-extras');
+
+        if (!this.query.queryLayoutOptions.hideUrgency) {
+            this.addUrgency(extrasSpan, task);
+        }
+
+        const shortMode = this.query.queryLayoutOptions.shortMode;
+
+        if (!this.query.queryLayoutOptions.hideBacklinks) {
+            this.addBacklinks(extrasSpan, task, shortMode, isFilenameUnique);
+        }
+
+        if (!this.query.queryLayoutOptions.hideEditButton) {
+            this.addEditButton(extrasSpan, task);
+        }
+
+        if (!this.query.queryLayoutOptions.hidePostponeButton && shouldShowPostponeButton(task)) {
+            this.addPostponeButton(extrasSpan, task, shortMode);
+        }
+
+        this.currentULElement().appendChild(listItem);
+    }
+
+    private addEditButton(listItem: HTMLElement, task: Task) {
+        const editTaskPencil = createAndAppendElement('a', listItem);
+        editTaskPencil.classList.add('tasks-edit');
+        editTaskPencil.title = 'Edit task';
+        editTaskPencil.href = '#';
+
+        editTaskPencil.addEventListener('click', (event: MouseEvent) =>
+            this.htmlQueryRendererParameters.editTaskPencilClickHandler(
+                event,
+                task,
+                this.htmlQueryRendererParameters.allTasks(),
+            ),
+        );
+    }
+
+    private addUrgency(listItem: HTMLElement, task: Task) {
+        const text = new Intl.NumberFormat().format(task.urgency);
+        const span = createAndAppendElement('span', listItem);
+        span.textContent = text;
+        span.classList.add('tasks-urgency');
+    }
+
+    protected async addGroupHeading(group: GroupDisplayHeading) {
+        // Headings nested to 2 or more levels are all displayed with 'h6:
+        let header: keyof HTMLElementTagNameMap = 'h6';
+        if (group.nestingLevel === 0) {
+            header = 'h4';
+        } else if (group.nestingLevel === 1) {
+            header = 'h5';
+        }
+
+        const headerEl = createAndAppendElement(header, this.content);
+        headerEl.classList.add('tasks-group-heading');
+
+        if (this.obsidianComponent === null) {
+            headerEl.textContent = 'For test purposes: ' + group.displayName;
+            return;
+        }
+        await this.renderMarkdown(
+            this.obsidianApp,
+            group.displayName,
+            headerEl,
+            this.tasksFile.path,
+            this.obsidianComponent,
+        );
+    }
+
+    private addBacklinks(listItem: HTMLElement, task: Task, shortMode: boolean, isFilenameUnique: boolean | undefined) {
+        const backLink = createAndAppendElement('span', listItem);
+        backLink.classList.add('tasks-backlink');
+
+        if (!shortMode) {
+            backLink.append(' (');
+        }
+
+        const link = createAndAppendElement('a', backLink);
+
+        link.rel = 'noopener';
+        link.target = '_blank';
+        link.classList.add('internal-link');
+        if (shortMode) {
+            link.classList.add('internal-link-short-mode');
+        }
+
+        let linkText: string;
+        if (shortMode) {
+            linkText = ' 🔗';
+        } else {
+            linkText = task.getLinkText({ isFilenameUnique }) ?? '';
+        }
+
+        link.text = linkText;
+
+        // Go to the line the task is defined at
+        link.addEventListener('click', async (ev: MouseEvent) => {
+            await this.htmlQueryRendererParameters.backlinksClickHandler(ev, task);
+        });
+
+        link.addEventListener('mousedown', async (ev: MouseEvent) => {
+            await this.htmlQueryRendererParameters.backlinksMousedownHandler(ev, task);
+        });
+
+        if (!shortMode) {
+            backLink.append(')');
+        }
+    }
+
+    private addPostponeButton(listItem: HTMLElement, task: Task, shortMode: boolean) {
+        const amount = 1;
+        const timeUnit = 'day';
+        const buttonTooltipText = postponeButtonTitle(task, amount, timeUnit);
+
+        const button = createAndAppendElement('a', listItem);
+        button.classList.add('tasks-postpone');
+        if (shortMode) {
+            button.classList.add('tasks-postpone-short-mode');
+        }
+        button.title = buttonTooltipText;
+
+        button.addEventListener('click', async (ev: MouseEvent) => {
+            ev.preventDefault(); // suppress the default click behavior
+            ev.stopPropagation(); // suppress further event propagation
+            await PostponeMenu.postponeOnClickCallback(button, task, amount, timeUnit);
+        });
+
+        /** Open a context menu on right-click.
+         */
+        button.addEventListener('contextmenu', async (ev: MouseEvent) => {
+            showMenu(ev, new PostponeMenu(button, task));
+        });
+    }
+
+    private addTaskCount(queryResult: QueryResult) {
+        if (!this.query.queryLayoutOptions.hideTaskCount) {
+            const taskCount = createAndAppendElement('div', this.content);
+            taskCount.classList.add('task-count');
+            taskCount.textContent = queryResult.totalTasksCountDisplayText();
+        }
+    }
+
+    private isFilenameUnique({ task }: { task: Task }, allMarkdownFiles: TFile[]): boolean | undefined {
+        // Will match the filename without extension (the file's "basename").
+        const filenameMatch = task.path.match(/([^/]*)\..+$/i);
+        if (filenameMatch === null) {
+            return undefined;
+        }
+
+        const filename = filenameMatch[1];
+        const allFilesWithSameName = allMarkdownFiles.filter((file: TFile) => {
+            if (file.basename === filename) {
+                // Found a file with the same name (it might actually be the same file, but we'll take that into account later.)
+                return true;
+            }
+        });
+
+        return allFilesWithSameName.length < 2;
+    }
+
+    private getGroupingAttribute() {
+        const groupingRules: string[] = [];
+        for (const group of this.query.grouping) {
+            groupingRules.push(group.property);
+        }
+        return groupingRules.join(',');
+    }
+
+    private currentULElement(): HTMLUListElement {
+        return this.ulElementStack[this.ulElementStack.length - 1];
+    }
+}

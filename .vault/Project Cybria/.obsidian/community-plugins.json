@@ -1,3 +1,6 @@
-[
-  "obsidian-style-settings"
+﻿[
+    "obsidian-style-settings",
+    "dataview",
+    "obsidian-tasks-plugin",
+    "tasks-map"
 ]

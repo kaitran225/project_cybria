@@ -1,5 +1,5 @@
 # --- Obsidian vault ---
-# Volatile UI state (changes on every tab/window move — causes merge noise)
+# Volatile UI state (changes on every tab/window move â€” causes merge noise)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache/
@@ -12,7 +12,7 @@
 .vault/**/.obsidian/plugins/*/data.json
 
 # Built plugin output (run npm run build in vault plugin folder)
-.vault/**/.obsidian/plugins/obsidian-style-settings/main.js
+.vault/**/.obsidian/plugins/*/main.js
 
 # Deleted notes
 .trash/
