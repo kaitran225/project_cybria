@@ -5,14 +5,14 @@
 .obsidian/cache/
 .obsidian/graph.json
 
-# Dev vault: themes/plugins are junctions to .plug-in/ (run .plug-in/setup-vault.ps1)
-.vault/**/.obsidian/themes/
-.vault/**/.obsidian/plugins/
 .vault/**/.obsidian/workspace.json
 .vault/**/.obsidian/workspace-mobile.json
 .vault/**/.obsidian/cache/
 .vault/**/.obsidian/graph.json
 .vault/**/.obsidian/plugins/*/data.json
+
+# Built plugin output (run npm run build in vault plugin folder)
+.vault/**/.obsidian/plugins/obsidian-style-settings/main.js
 
 # Deleted notes
 .trash/
@@ -54,7 +54,6 @@ temp/
 
 # --- Node (Obsidian plugins, tooling) ---
 node_modules/
-.plug-in/base-style/main.js
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

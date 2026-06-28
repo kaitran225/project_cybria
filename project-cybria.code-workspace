@@ -1,6 +1,5 @@
 {
   "folders": [
-    { "name": "repo", "path": "." },
     { "name": "vault", "path": ".vault/Project Cybria" }
   ],
   "settings": {
@@ -10,7 +9,7 @@
     "search.exclude": {
       "**/node_modules": true
     },
-    "typescript.tsdk": ".plug-in/base-style/node_modules/typescript/lib",
+    "typescript.tsdk": ".vault/Project Cybria/.obsidian/plugins/obsidian-style-settings/node_modules/typescript/lib",
     "editor.formatOnSave": false
   },
   "extensions": {
