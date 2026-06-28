@@ -1,0 +1,19 @@
+{
+  "folders": [
+    { "name": "repo", "path": "." },
+    { "name": "vault", "path": ".vault/Project Cybria" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true
+    },
+    "search.exclude": {
+      "**/node_modules": true
+    },
+    "typescript.tsdk": ".plug-in/base-style/node_modules/typescript/lib",
+    "editor.formatOnSave": false
+  },
+  "extensions": {
+    "recommendations": ["esbenp.prettier-vscode"]
+  }
+}
