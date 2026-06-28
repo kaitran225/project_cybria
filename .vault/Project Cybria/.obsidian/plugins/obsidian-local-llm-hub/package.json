@@ -1,0 +1,46 @@
+﻿{
+    "name":  "obsidian-local-llm-hub",
+    "version":  "0.15.2",
+    "description":  "Chat with local LLMs via OpenAI-compatible API, with local embeddings RAG and text processing commands",
+    "main":  "main.js",
+    "scripts":  {
+                    "dev":  "node esbuild.config.mjs",
+                    "build":  "tsc -noEmit -skipLibCheck \u0026\u0026 node esbuild.config.mjs production"
+                },
+    "keywords":  [
+                     "obsidian",
+                     "obsidian-plugin",
+                     "local-llm",
+                     "ollama",
+                     "rag"
+                 ],
+    "author":  "takeshy",
+    "license":  "MIT",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/takeshy/obsidian-local-llm-hub.git"
+                   },
+    "devDependencies":  {
+                            "@codemirror/state":  "^6.5.0",
+                            "@codemirror/view":  "^6.38.6",
+                            "@eslint/json":  "0.14.0",
+                            "@types/diff":  "^7.0.2",
+                            "@types/node":  "^20.0.0",
+                            "@types/react":  "^18.3.18",
+                            "@types/react-dom":  "^18.3.5",
+                            "esbuild":  "^0.25.2",
+                            "eslint-plugin-obsidianmd":  "^0.1.9",
+                            "obsidian":  "^1.10.0",
+                            "tslib":  "^2.4.0",
+                            "typescript":  "^5.0.0",
+                            "typescript-eslint":  "^8.49.0",
+                            "vitest":  "^4.0.18"
+                        },
+    "dependencies":  {
+                         "diff":  "^8.0.3",
+                         "lucide-react":  "^0.503.0",
+                         "pdf-lib":  "^1.17.1",
+                         "react":  "^18.3.1",
+                         "react-dom":  "^18.3.1"
+                     }
+}

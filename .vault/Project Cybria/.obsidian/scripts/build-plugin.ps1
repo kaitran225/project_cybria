@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $pluginsRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\plugins")).Path
 
 function Invoke-PluginBuild {
@@ -47,4 +47,76 @@ Invoke-PluginBuild "dataview" {
     }
 }
 
+
+Invoke-PluginBuild "obsidian-local-llm-hub" {
+    npm install
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-enzyme" {
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        bun install
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        bun run build
+    } else {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            npm install --legacy-peer-deps
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+        npm run build
+    }
+}
+
+Invoke-PluginBuild "obsidian-color-palette" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-agent" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-code-suite" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+    $pluginDir = Get-Location
+    $builtMain = Join-Path $pluginDir "dist\main.js"
+    if (Test-Path $builtMain) {
+        Copy-Item -Force $builtMain (Join-Path $pluginDir "main.js")
+        Write-Host "Copied dist/main.js -> main.js" -ForegroundColor DarkGray
+    }
+}
+
+
+Invoke-PluginBuild "obsidian-creases" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-people-graph" {
+    npm install
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-storyteller-suite" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-image-gen" {
+    npm install
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
 Write-Host "`nAll plugins built successfully." -ForegroundColor Green
+
+

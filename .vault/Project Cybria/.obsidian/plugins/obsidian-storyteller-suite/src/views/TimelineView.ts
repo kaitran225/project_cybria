@@ -1,0 +1,841 @@
+// Timeline View - Full workspace view for timeline visualization
+// Provides a dedicated panel for viewing and interacting with the story timeline
+
+import { ItemView, WorkspaceLeaf, setIcon, Menu, DropdownComponent, Notice, ViewStateResult } from 'obsidian';
+import StorytellerSuitePlugin from '../main';
+import { t } from '../i18n/strings';
+import { TimelineRenderer, TimelineFilters } from '../utils/TimelineRenderer';
+import { TimelineUIFilters, TimelineUIState } from '../types';
+import { TimelineTrackManager } from '../utils/TimelineTrackManager';
+import { TimelineControlsBuilder, TimelineControlCallbacks } from '../utils/TimelineControlsBuilder';
+import { TimelineFilterBuilder, TimelineFilterCallbacks } from '../utils/TimelineFilterBuilder';
+import { ConflictDetector, DetectedConflict } from '../utils/ConflictDetector';
+import { PlatformUtils } from '../utils/PlatformUtils';
+
+export const VIEW_TYPE_TIMELINE = 'storyteller-timeline-view';
+
+// Re-export TimelineUIState as TimelineViewState for backward compatibility
+export type TimelineViewState = TimelineUIState;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isGroupMode(value: unknown): value is TimelineUIState['groupMode'] {
+    return value === 'none' || value === 'location' || value === 'group' || value === 'character' || value === 'track';
+}
+
+function asStringSet(value: unknown): Set<string> | undefined {
+    return Array.isArray(value) ? new Set(value.map(item => String(item))) : undefined;
+}
+
+function restoreFilters(value: unknown): TimelineUIFilters {
+    if (!isRecord(value)) {
+        return {};
+    }
+
+    return {
+        milestonesOnly: typeof value.milestonesOnly === 'boolean' ? value.milestonesOnly : undefined,
+        characters: asStringSet(value.characters),
+        locations: asStringSet(value.locations),
+        groups: asStringSet(value.groups),
+        tags: asStringSet(value.tags),
+        eras: asStringSet(value.eras),
+        forkId: typeof value.forkId === 'string' ? value.forkId : undefined
+    };
+}
+
+/**
+ * TimelineView provides a full-screen dedicated view for the timeline
+ * Users can open this in any workspace leaf for a larger, persistent visualization
+ * 
+ * UI Structure (Optimized for vertical space):
+ * - Toolbar: Icon buttons for Gantt toggle, layout, export, refresh, zoom controls
+ * - Entity Filters: Inline toggles for milestone-only
+ * - Advanced Filters (collapsible): Character, location, group filters
+ * - Timeline Container: Flex-grow to fill remaining space
+ * - Status Footer: Event count, date range display
+ */
+export class TimelineView extends ItemView {
+    plugin: StorytellerSuitePlugin;
+    private renderer: TimelineRenderer | null = null;
+    private currentState: TimelineViewState;
+
+    // Shared builders
+    private controlsBuilder: TimelineControlsBuilder;
+    private filterBuilder: TimelineFilterBuilder;
+
+    // UI Elements
+    private toolbarEl: HTMLElement | null = null;
+    private filterToggleEl: HTMLElement | null = null;
+    private advancedFiltersEl: HTMLElement | null = null;
+    private advancedFiltersContent: HTMLElement | null = null;
+    private filterChipsEl: HTMLElement | null = null;
+    private timelineContainer: HTMLElement | null = null;
+    private footerEl: HTMLElement | null = null;
+    private footerStatusEl: HTMLElement | null = null;
+    private timelineSearchInputEl: HTMLInputElement | null = null;
+    private timelineSearchDropdownEl: HTMLElement | null = null;
+
+    // State
+    private advancedFiltersExpanded = false;
+    private resizeObserver: ResizeObserver | null = null;
+    private showScenes = false;
+    private showWatchedNotes = false;
+
+    constructor(leaf: WorkspaceLeaf, plugin: StorytellerSuitePlugin) {
+        super(leaf);
+        this.plugin = plugin;
+
+        // Initialize default state using shared utility
+        this.currentState = TimelineControlsBuilder.createDefaultState(plugin);
+
+        // Create control callbacks
+        const controlCallbacks: TimelineControlCallbacks = {
+            onStateChange: () => {
+                this.updateFooterStatus();
+                this.updateSearchDropdown();
+            },
+            onRendererUpdate: () => { void this.buildTimeline(); },
+            getRenderer: () => this.renderer,
+            getEvents: () => this.plugin.listEvents()
+        };
+
+        // Create filter callbacks
+        const filterCallbacks: TimelineFilterCallbacks = {
+            onFilterChange: () => {
+                if (this.filterChipsEl) {
+                    this.filterBuilder.renderFilterChips(this.filterChipsEl);
+                }
+                this.updateFooterStatus();
+                this.updateSearchDropdown();
+            },
+            getRenderer: () => this.renderer
+        };
+
+        // Initialize builders
+        this.controlsBuilder = new TimelineControlsBuilder(plugin, this.currentState, controlCallbacks);
+        this.filterBuilder = new TimelineFilterBuilder(plugin, this.currentState, filterCallbacks);
+    }
+
+    getViewType(): string {
+        return VIEW_TYPE_TIMELINE;
+    }
+
+    getDisplayText(): string {
+        return t('timeline');
+    }
+
+    getIcon(): string {
+        return 'clock';
+    }
+
+    async onOpen(): Promise<void> {
+        const container = this.containerEl.children[1] as HTMLElement;
+        container.empty();
+        container.addClass('storyteller-timeline-view');
+        if (PlatformUtils.shouldUseSimplifiedUI()) {
+            container.addClass('storyteller-timeline-view--mobile');
+        }
+        
+        // Add gantt-mode class if enabled
+        if (this.currentState.ganttMode) {
+            container.addClass('gantt-mode');
+        }
+
+        // Create main sections with flex layout
+        this.toolbarEl = container.createDiv('storyteller-timeline-toolbar');
+        this.filterToggleEl = container.createDiv('storyteller-timeline-filter-toggle');
+        this.advancedFiltersEl = container.createDiv('storyteller-timeline-advanced-filters');
+        this.filterChipsEl = container.createDiv('storyteller-filter-chips');
+        this.timelineContainer = container.createDiv('storyteller-timeline-container');
+        this.timelineContainer.setCssStyles({ minHeight: '260px' });
+        this.footerEl = container.createDiv('storyteller-timeline-footer');
+
+        // Build each section
+        this.buildToolbar();
+        this.buildFilterToggle();
+        await this.buildAdvancedFilters();
+        // Render any active filter chips
+        if (this.filterChipsEl) {
+            this.filterBuilder.renderFilterChips(this.filterChipsEl);
+        }
+        await this.buildTimeline();
+        this.buildFooter();
+        
+        // Setup resize observer for responsive layout
+        this.setupResizeObserver();
+    }
+
+    /**
+     * Build toolbar with icon buttons
+     */
+    private buildToolbar(): void {
+        if (!this.toolbarEl) return;
+        this.toolbarEl.empty();
+
+        // Use shared controls builder for common controls
+        this.controlsBuilder.createGanttToggle(this.toolbarEl);
+        this.controlsBuilder.createGroupingDropdown(this.toolbarEl);
+
+        // Fork selector dropdown
+        const forkContainer = this.toolbarEl.createDiv('storyteller-fork-container');
+        const forkSelect = forkContainer.createEl('select', {
+            cls: 'dropdown storyteller-fork-select',
+            attr: { 'aria-label': 'Timeline fork' }
+        });
+
+        // Add main timeline option
+        const mainOption = forkSelect.createEl('option', {
+            value: 'main',
+            text: 'Main timeline'
+        });
+        mainOption.selected = true;
+
+        // Add fork options
+        const forks = this.plugin.getTimelineForks();
+        forks.forEach(fork => {
+            const option = forkSelect.createEl('option', {
+                value: fork.id,
+                text: fork.name
+            });
+            if (fork.color) {
+                option.setCssStyles({ color: fork.color });
+            }
+        });
+
+        forkSelect.addEventListener('change', () => { void (async () => {
+            const selectedFork = forkSelect.value;
+            this.currentState.currentForkId = selectedFork === 'main' ? undefined : selectedFork;
+
+            if (selectedFork === 'main') {
+                // Show all events - clear any fork filters
+                this.currentState.filters = {
+                    ...this.currentState.filters,
+                    forkId: undefined
+                };
+            } else {
+                // Filter to fork-specific events
+                const fork = this.plugin.getTimelineFork(selectedFork);
+                if (fork) {
+                    this.currentState.filters = {
+                        ...this.currentState.filters,
+                        forkId: fork.id
+                    };
+                }
+            }
+
+            // Rebuild timeline with new filters
+            await this.buildTimeline();
+            this.updateFooterStatus();
+        })(); });
+
+        // Conflict warnings badge (if conflicts exist)
+        const conflicts = this.plugin.settings.timelineConflicts || [];
+        const activeConflicts = conflicts.filter(c => !c.dismissed);
+        if (activeConflicts.length > 0) {
+            const conflictBadge = this.toolbarEl.createEl('button', {
+                cls: 'clickable-icon storyteller-toolbar-btn storyteller-conflict-badge',
+                attr: {
+                    'aria-label': `${activeConflicts.length} timeline conflicts`,
+                    'title': `View ${activeConflicts.length} timeline conflict(s)`
+                }
+            });
+            const badgeIcon = conflictBadge.createSpan('storyteller-badge-icon');
+            setIcon(badgeIcon, 'alert-triangle');
+            conflictBadge.createSpan({ text: String(activeConflicts.length), cls: 'storyteller-badge-count' });
+            conflictBadge.addEventListener('click', () => { void (async () => {
+                const { ConflictListModal } = await import('../modals/ConflictListModal');
+                new ConflictListModal(
+                    this.app,
+                    this.plugin,
+                    conflicts,
+                    async () => {
+                        await this.refresh();
+                    }
+                ).open();
+            })(); });
+        }
+
+        // Use shared controls for zoom and navigation buttons
+        this.controlsBuilder.createFitButton(this.toolbarEl);
+        this.controlsBuilder.createFitGroupsButton(this.toolbarEl);
+        this.controlsBuilder.createDecadeButton(this.toolbarEl);
+        this.controlsBuilder.createCenturyButton(this.toolbarEl);
+        this.controlsBuilder.createTodayButton(this.toolbarEl);
+        this.controlsBuilder.createEditModeToggle(this.toolbarEl);
+        this.controlsBuilder.createNarrativeOrderToggle(this.toolbarEl);
+        this.controlsBuilder.createEraToggle(this.toolbarEl);
+        this.controlsBuilder.createDensityPresetButton(this.toolbarEl);
+
+        // Manage eras button
+        const manageErasBtn = this.toolbarEl.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn',
+            attr: {
+                'aria-label': 'Manage timeline eras',
+                'title': 'Manage timeline eras'
+            }
+        });
+        setIcon(manageErasBtn, 'calendar-range');
+        manageErasBtn.addEventListener('click', () => { void (async () => {
+            const { EraListModal } = await import('../modals/EraListModal');
+            new EraListModal(this.app, this.plugin).open();
+        })(); });
+
+        // Track selector dropdown
+        const trackSelectorContainer = this.toolbarEl.createDiv('storyteller-track-selector');
+        trackSelectorContainer.createEl('span', {
+            text: 'Track: ',
+            cls: 'storyteller-track-label'
+        });
+
+        const trackDropdown = new DropdownComponent(trackSelectorContainer);
+        trackDropdown.addOption('', 'All events (global)');
+
+        // Populate tracks from settings
+        const tracks = this.plugin.settings.timelineTracks || [];
+        const visibleTracks = TimelineTrackManager.getVisibleTracks(tracks);
+        for (const track of visibleTracks) {
+            trackDropdown.addOption(track.id, track.name);
+        }
+
+        trackDropdown.setValue(this.currentState.currentTrackId || '');
+        trackDropdown.onChange(async (trackId) => {
+            this.currentState.currentTrackId = trackId || undefined;
+            await this.applyTrackFilter(trackId);
+        });
+
+        // Scenes toggle button
+        const scenesBtn = this.toolbarEl.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn' + (this.showScenes ? ' is-active' : ''),
+            attr: {
+                'aria-label': 'Toggle scenes on timeline',
+                'title': 'Toggle scenes on timeline'
+            }
+        });
+        setIcon(scenesBtn, 'pencil');
+        scenesBtn.addEventListener('click', () => { void (async () => {
+            this.showScenes = !this.showScenes;
+            scenesBtn.toggleClass('is-active', this.showScenes);
+            this.renderer?.setShowScenes(this.showScenes);
+        })(); });
+
+        // Vault notes toggle button
+        const notesBtn = this.toolbarEl.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn' + (this.showWatchedNotes ? ' is-active' : ''),
+            attr: {
+                'aria-label': 'Toggle vault notes on timeline',
+                'title': 'Toggle vault notes on timeline'
+            }
+        });
+        setIcon(notesBtn, 'file');
+        notesBtn.addEventListener('click', () => { void (async () => {
+            this.showWatchedNotes = !this.showWatchedNotes;
+            notesBtn.toggleClass('is-active', this.showWatchedNotes);
+            this.renderer?.setShowWatchedNotes(this.showWatchedNotes);
+        })(); });
+
+        // Export button
+        const exportBtn = this.toolbarEl.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn',
+            attr: {
+                'aria-label': t('export'),
+                'title': t('export')
+            }
+        });
+        setIcon(exportBtn, 'download');
+        exportBtn.addEventListener('click', () => this.showExportMenu(exportBtn));
+
+        // Refresh button using shared builder
+        this.controlsBuilder.createRefreshButton(this.toolbarEl);
+
+        // Quick jump-to-event search
+        const searchWrap = this.toolbarEl.createDiv('storyteller-timeline-search-wrap');
+        this.timelineSearchInputEl = searchWrap.createEl('input', {
+            type: 'search',
+            cls: 'storyteller-timeline-search-input',
+            placeholder: 'Jump to event...'
+        });
+        this.timelineSearchDropdownEl = searchWrap.createDiv('storyteller-timeline-search-dropdown');
+        const searchBtn = searchWrap.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn',
+            attr: { 'aria-label': 'Jump to event', 'title': 'Jump to event' }
+        });
+        setIcon(searchBtn, 'search');
+        searchBtn.addEventListener('click', () => this.runEventSearch());
+
+        const milestonesBtn = searchWrap.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn' + (this.currentState.filters.milestonesOnly ? ' is-active' : ''),
+            attr: { 'aria-label': t('milestonesOnly'), 'title': t('milestonesOnly') }
+        });
+        setIcon(milestonesBtn, 'star');
+        milestonesBtn.addEventListener('click', () => {
+            const next = !this.currentState.filters.milestonesOnly;
+            this.currentState.filters.milestonesOnly = next;
+            milestonesBtn.toggleClass('is-active', next);
+            this.renderer?.applyFilters(this.currentState.filters);
+            this.buildFilterToggle();
+            this.updateFooterStatus();
+            this.updateSearchDropdown();
+        });
+
+        this.timelineSearchInputEl.addEventListener('input', () => this.updateSearchDropdown());
+        this.timelineSearchInputEl.addEventListener('focus', () => this.updateSearchDropdown());
+        this.timelineSearchInputEl.addEventListener('blur', () => window.setTimeout(() => this.hideSearchDropdown(), 120));
+        this.timelineSearchInputEl.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'Enter') this.runEventSearch();
+            if (e.key === 'Escape') this.hideSearchDropdown();
+        });
+    }
+
+    /**
+     * Build filter toggle (milestone only)
+     */
+    private buildFilterToggle(): void {
+        if (!this.filterToggleEl) return;
+        this.filterToggleEl.empty();
+
+        const label = this.filterToggleEl.createEl('label', { 
+            text: t('milestonesOnly'),
+            cls: 'storyteller-filter-label'
+        });
+        const checkbox = this.filterToggleEl.createEl('input', { 
+            type: 'checkbox',
+            cls: 'storyteller-filter-checkbox'
+        });
+        checkbox.checked = this.currentState.filters.milestonesOnly || false;
+        checkbox.addEventListener('change', () => {
+            this.currentState.filters.milestonesOnly = checkbox.checked;
+            this.renderer?.applyFilters(this.currentState.filters);
+            this.updateFooterStatus();
+            this.updateSearchDropdown();
+        });
+        label.prepend(checkbox);
+
+        // Filter button to expand advanced filters
+        const filterBtn = this.filterToggleEl.createEl('button', {
+            cls: 'clickable-icon storyteller-toolbar-btn',
+            attr: { 
+                'aria-label': t('filters'),
+                'title': t('filters')
+            }
+        });
+        setIcon(filterBtn, 'filter');
+        filterBtn.addEventListener('click', () => {
+            this.advancedFiltersExpanded = !this.advancedFiltersExpanded;
+            if (this.advancedFiltersContent) {
+                this.advancedFiltersContent.setCssStyles({ display: this.advancedFiltersExpanded ? 'block' : 'none' });
+            }
+        });
+    }
+
+    /**
+     * Build collapsible advanced filters section
+     */
+    private async buildAdvancedFilters(): Promise<void> {
+        if (!this.advancedFiltersEl) return;
+        this.advancedFiltersEl.empty();
+
+        // Content section (initially hidden)
+        this.advancedFiltersContent = this.advancedFiltersEl.createDiv('storyteller-advanced-filters-content');
+        this.advancedFiltersContent.setCssStyles({ display: this.advancedFiltersExpanded ? 'block' : 'none' });
+
+        // Get events for filter population
+        const events = await this.plugin.listEvents();
+
+        // Use shared filter builder for all filter controls
+        await this.filterBuilder.buildFilterPanel(this.advancedFiltersContent, events);
+    }
+
+    /**
+     * Build timeline container and initialize renderer
+     */
+    private async buildTimeline(): Promise<void> {
+        if (!this.timelineContainer) return;
+        this.timelineContainer.empty();
+        this.timelineContainer.setCssStyles({ flexGrow: '1' });
+
+        // Initialize timeline renderer
+        this.renderer = new TimelineRenderer(this.timelineContainer, this.plugin, {
+            ganttMode: this.currentState.ganttMode,
+            groupMode: this.currentState.groupMode,
+            stackEnabled: this.currentState.stackEnabled,
+            density: this.currentState.density,
+            editMode: this.currentState.editMode,
+            showEras: this.currentState.showEras,
+            narrativeOrder: this.currentState.narrativeOrder,
+            defaultGanttDuration: this.plugin.settings.ganttDefaultDuration ?? 1,
+            showProgressBars: this.plugin.settings.ganttShowProgressBars ?? true,
+            dependencyArrowStyle: this.plugin.settings.ganttArrowStyle ?? 'solid',
+            onConflictsDetected: (conflicts) => { void this.handleConflicts(conflicts); }
+        });
+
+        try {
+            await this.renderer.initialize();
+            this.renderer.applyFilters(this.currentState.filters);
+            this.scheduleTimelineRedraw();
+            this.updateSearchDropdown();
+        } catch {
+            
+            this.timelineContainer.empty();
+            const errorEl = this.timelineContainer.createDiv('storyteller-timeline-error');
+            errorEl.createEl('h3', { text: 'Timeline error' });
+            errorEl.createEl('p', { text: 'Failed to initialize timeline data. Check developer console for details.' });
+            new Notice('Timeline failed to load. Check console for details.');
+        }
+    }
+
+    private scheduleTimelineRedraw(): void {
+        window.requestAnimationFrame(() => {
+            this.renderer?.redraw();
+            window.setTimeout(() => this.renderer?.redraw(), 80);
+        });
+    }
+
+    /**
+     * Handle detected conflicts from renderer
+     */
+    private async handleConflicts(conflicts: DetectedConflict[]): Promise<void> {
+        const newConflicts = ConflictDetector.toStorageFormat(conflicts);
+        const currentConflicts = this.plugin.settings.timelineConflicts || [];
+        
+        // Merge to preserve dismissed status
+        const mergedConflicts = newConflicts.map(newC => {
+            const existing = currentConflicts.find(c => c.id === newC.id);
+            if (existing) {
+                return { ...newC, dismissed: existing.dismissed };
+            }
+            return newC;
+        });
+
+        // Only update if changed
+        if (JSON.stringify(mergedConflicts) !== JSON.stringify(currentConflicts)) {
+            this.plugin.settings.timelineConflicts = mergedConflicts;
+            await this.plugin.saveSettings();
+            this.buildToolbar();
+        }
+    }
+
+    /**
+     * Build status footer
+     */
+    private buildFooter(): void {
+        if (!this.footerEl) return;
+        this.footerEl.empty();
+        
+        this.footerStatusEl = this.footerEl.createEl('span', {
+            cls: 'storyteller-timeline-status',
+            attr: { 'aria-live': 'polite' }
+        });
+        this.updateFooterStatus();
+    }
+
+    /**
+     * Apply track-based filtering
+     */
+    private async applyTrackFilter(trackId: string): Promise<void> {
+        // Always start with clean entity filters when switching tracks
+        const newFilters: TimelineFilters = {
+            ...this.currentState.filters,
+            characters: undefined,
+            locations: undefined,
+            groups: undefined,
+            tags: undefined
+        };
+
+        if (!trackId) {
+            // Clear track filter - show all events
+            this.currentState.filters = newFilters;
+            // Rebuild timeline to ensure proper refresh
+            await this.buildTimeline();
+            this.updateFooterStatus();
+            return;
+        }
+
+        // Get the selected track
+        const track = this.plugin.getTimelineTrack(trackId);
+        if (!track) {
+            
+            // Still rebuild with cleared filters to show all events
+            this.currentState.filters = newFilters;
+            await this.buildTimeline();
+            this.updateFooterStatus();
+            return;
+        }
+
+        // Handle different track types
+        if (track.type === 'global') {
+            // Global track shows all events - filters already cleared above
+            newFilters.milestonesOnly = false;
+        } else if (track.type === 'character' && track.entityId) {
+            // Character track - filter by specific character
+            newFilters.characters = new Set([track.entityId]);
+        } else if (track.type === 'location' && track.entityId) {
+            // Location track - filter by specific location
+            newFilters.locations = new Set([track.entityId]);
+        } else if (track.type === 'group' && track.entityId) {
+            // Group track - filter by specific group
+            newFilters.groups = new Set([track.entityId]);
+        } else if (track.type === 'custom' && track.filterCriteria) {
+            // Custom track - use filter criteria
+            if (track.filterCriteria.characters && track.filterCriteria.characters.length > 0) {
+                newFilters.characters = new Set(track.filterCriteria.characters);
+            }
+            if (track.filterCriteria.locations && track.filterCriteria.locations.length > 0) {
+                newFilters.locations = new Set(track.filterCriteria.locations);
+            }
+            if (track.filterCriteria.groups && track.filterCriteria.groups.length > 0) {
+                newFilters.groups = new Set(track.filterCriteria.groups);
+            }
+            if (track.filterCriteria.tags && track.filterCriteria.tags.length > 0) {
+                newFilters.tags = new Set(track.filterCriteria.tags);
+            }
+            newFilters.milestonesOnly = track.filterCriteria.milestonesOnly || false;
+        }
+
+        this.currentState.filters = newFilters;
+        // Rebuild timeline to ensure proper refresh when switching tracks
+        await this.buildTimeline();
+        this.updateFooterStatus();
+    }
+
+    /**
+     * Update footer status text
+     */
+    private updateFooterStatus(): void {
+        if (!this.footerStatusEl || !this.renderer) return;
+        
+        const eventCount = this.renderer.getEventCount();
+        const dateRange = this.renderer.getDateRange();
+        
+        if (eventCount === 0) {
+            this.footerStatusEl.setText(t('noEventsFound'));
+        } else {
+            let statusText = `${eventCount} event${eventCount !== 1 ? 's' : ''}`;
+            if (dateRange) {
+                const startStr = dateRange.start.toLocaleDateString();
+                const endStr = dateRange.end.toLocaleDateString();
+                statusText += ` • ${startStr} — ${endStr}`;
+            }
+            if (this.currentState.ganttMode) {
+                statusText += ` • ${t('ganttView')}`;
+            }
+            this.footerStatusEl.setText(statusText);
+        }
+    }
+
+    private runEventSearch(): void {
+        const q = this.timelineSearchInputEl?.value?.trim() || '';
+        if (!q || !this.renderer) return;
+        const found = this.renderer.focusEventByQuery(q);
+        if (!found) {
+            new Notice(`No event found for "${q}"`);
+            return;
+        }
+        this.hideSearchDropdown();
+    }
+
+    private updateSearchDropdown(): void {
+        if (!this.timelineSearchDropdownEl || !this.renderer) return;
+        const query = (this.timelineSearchInputEl?.value || '').trim().toLowerCase();
+        this.timelineSearchDropdownEl.empty();
+
+        if (!query) {
+            this.hideSearchDropdown();
+            return;
+        }
+
+        const matches = this.renderer.searchVisibleEvents(query, 12);
+
+        if (matches.length === 0) {
+            const empty = this.timelineSearchDropdownEl.createDiv('storyteller-timeline-search-empty');
+            empty.setText('No matching events');
+            this.timelineSearchDropdownEl.addClass('is-open');
+            return;
+        }
+
+        for (const evt of matches) {
+            const row = this.timelineSearchDropdownEl.createEl('button', {
+                cls: 'storyteller-timeline-search-row',
+                type: 'button'
+            });
+            row.createSpan({ cls: 'storyteller-timeline-search-row-name', text: evt.name || '(Untitled Event)' });
+            row.createSpan({ cls: 'storyteller-timeline-search-row-date', text: evt.dateTime || 'Undated' });
+            row.addEventListener('mousedown', (e) => e.preventDefault());
+            row.addEventListener('click', () => {
+                this.renderer?.focusEvent(evt);
+                this.hideSearchDropdown();
+            });
+        }
+
+        this.timelineSearchDropdownEl.addClass('is-open');
+    }
+
+    private hideSearchDropdown(): void {
+        if (!this.timelineSearchDropdownEl) return;
+        this.timelineSearchDropdownEl.removeClass('is-open');
+        this.timelineSearchDropdownEl.empty();
+    }
+
+    /**
+     * Setup resize observer for responsive layout
+     */
+    private setupResizeObserver(): void {
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = new ResizeObserver(() => {
+            this.onResize();
+        });
+        this.resizeObserver.observe(this.containerEl);
+    }
+
+    /**
+     * Handle resize events
+     */
+    onResize(): void {
+        // Timeline should auto-adjust to container size
+        // Force redraw to ensure proper rendering after resize
+        if (this.renderer) {
+            this.scheduleTimelineRedraw();
+        }
+    }
+
+    /**
+     * Show export menu
+     */
+    private showExportMenu(buttonEl: HTMLElement): void {
+        const menu = new Menu();
+
+        menu.addItem((item) => {
+            item.setTitle(t('exportAsPNG'))
+                .setIcon('image')
+                .onClick(() => { void this.renderer?.exportAsImage('png'); });
+        });
+
+        menu.addItem((item) => {
+            item.setTitle(t('exportAsJPG'))
+                .setIcon('image')
+                .onClick(() => { void this.renderer?.exportAsImage('jpg'); });
+        });
+
+        menu.addSeparator();
+
+        menu.addItem((item) => {
+            item.setTitle('Export as CSV')
+                .setIcon('table')
+                .onClick(() => { void this.renderer?.exportAsCsv(); });
+        });
+
+        menu.addItem((item) => {
+            item.setTitle('Export as JSON')
+                .setIcon('braces')
+                .onClick(() => { void this.renderer?.exportAsJson(); });
+        });
+
+        menu.addItem((item) => {
+            item.setTitle('Export as Markdown')
+                .setIcon('file-text')
+                .onClick(() => { void this.renderer?.exportAsMarkdown(); });
+        });
+
+        menu.showAtMouseEvent(new MouseEvent('click', {
+            clientX: buttonEl.getBoundingClientRect().left,
+            clientY: buttonEl.getBoundingClientRect().bottom
+        }));
+    }
+
+    /**
+     * Get view state for persistence
+     */
+    getState(): Record<string, unknown> {
+        // Capture current window range for zoom/scroll persistence
+        const visibleRange = this.renderer?.getVisibleRange();
+
+        return {
+            ganttMode: this.currentState.ganttMode,
+            groupMode: this.currentState.groupMode,
+            stackEnabled: this.currentState.stackEnabled,
+            density: this.currentState.density,
+            editMode: this.currentState.editMode,
+            filters: {
+                milestonesOnly: this.currentState.filters.milestonesOnly,
+                characters: this.currentState.filters.characters ?
+                    Array.from(this.currentState.filters.characters) : undefined,
+                locations: this.currentState.filters.locations ?
+                    Array.from(this.currentState.filters.locations) : undefined,
+                groups: this.currentState.filters.groups ?
+                    Array.from(this.currentState.filters.groups) : undefined
+            },
+            // Save visible window range for restoring zoom/scroll position
+            visibleRange: visibleRange ? {
+                start: visibleRange.start.toISOString(),
+                end: visibleRange.end.toISOString()
+            } : undefined
+        };
+    }
+
+    /**
+     * Set view state from persistence
+     */
+     
+    async setState(state: unknown, result: ViewStateResult): Promise<void> {
+        await super.setState(state, result);
+
+        if (isRecord(state)) {
+            const filters = restoreFilters(state.filters);
+            this.currentState = {
+                ganttMode: state.ganttMode === true,
+                groupMode: isGroupMode(state.groupMode) ? state.groupMode : 'none',
+                stackEnabled: typeof state.stackEnabled === 'boolean' ? state.stackEnabled : true,
+                density: typeof state.density === 'number' ? state.density : 50,
+                editMode: state.editMode === true,
+                filters,
+                showEras: state.showEras === true,
+                narrativeOrder: state.narrativeOrder === true
+            };
+
+            // Restore visible window range if available
+            if (isRecord(state.visibleRange) && this.renderer) {
+                try {
+                    if (typeof state.visibleRange.start === 'string' && typeof state.visibleRange.end === 'string') {
+                        const start = new Date(state.visibleRange.start);
+                        const end = new Date(state.visibleRange.end);
+                        // Use setTimeout to ensure timeline is fully initialized
+                        window.setTimeout(() => {
+                            if (this.renderer) {
+                                this.renderer.setVisibleRange(start, end);
+                            }
+                        }, 100);
+                    }
+                } catch {
+                	// intentional
+                    
+                }
+            }
+        }
+    }
+
+    async onClose(): Promise<void> {
+        // Clean up resize observer
+        if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+        }
+
+        // Clean up timeline renderer
+        if (this.renderer) {
+            this.renderer.destroy();
+            this.renderer = null;
+        }
+    }
+
+    /**
+     * Refresh the timeline with current data
+     */
+    async refresh(): Promise<void> {
+        if (this.renderer) {
+            await this.renderer.refresh();
+            this.updateFooterStatus();
+            this.updateSearchDropdown();
+        }
+    }
+}

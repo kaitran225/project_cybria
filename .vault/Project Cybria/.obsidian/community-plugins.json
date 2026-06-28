@@ -1,6 +1,15 @@
-﻿[
-    "obsidian-style-settings",
-    "dataview",
-    "obsidian-tasks-plugin",
-    "tasks-map"
+[
+  "obsidian-style-settings",
+  "dataview",
+  "obsidian-tasks-plugin",
+  "tasks-map",
+  "local-llm-hub",
+  "reason",
+  "color-palette",
+  "ai-agent",
+  "code-suite",
+  "creases",
+  "people-graph",
+  "storyteller-suite",
+  "image-gen"
 ]

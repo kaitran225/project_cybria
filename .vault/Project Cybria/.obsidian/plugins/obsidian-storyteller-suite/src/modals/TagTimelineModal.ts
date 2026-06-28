@@ -1,0 +1,433 @@
+import { App, Modal, Setting, Notice } from 'obsidian';
+import { TagTimelineGenerator, TagTimelineOptions, GeneratedEventPreview } from '../utils/TagTimelineGenerator';
+import { Event, Location } from '../types';
+import { t } from '../i18n/strings';
+import StorytellerSuitePlugin from '../main';
+
+/**
+ * Modal for generating timeline events from tags
+ */
+export class TagTimelineModal extends Modal {
+    private plugin: StorytellerSuitePlugin;
+    private generator: TagTimelineGenerator;
+    private selectedTags: string[] = [];
+    private previews: GeneratedEventPreview[] = [];
+    private previewListEl: HTMLElement | null = null;
+    private locations: Location[] = [];
+    private options: TagTimelineOptions = {
+        tags: [],
+        dateStrategy: 'auto',
+        dateFrontmatterField: 'date',
+        includeContent: true,
+        maxContentLength: 500,
+        defaultStatus: 'Generated'
+    };
+
+    constructor(app: App, plugin: StorytellerSuitePlugin) {
+        super(app);
+        this.plugin = plugin;
+        this.generator = new TagTimelineGenerator(app);
+    }
+
+    async onOpen(): Promise<void> {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass('storyteller-tag-timeline-generator');
+
+        // Load locations for name resolution
+        this.locations = await this.plugin.listLocations();
+
+        // Title
+        contentEl.createEl('h2', { text: 'Generate timeline from tags' });
+
+        // Description
+        contentEl.createDiv({
+            text: 'Automatically create timeline events from notes with specific tags. Events will be extracted based on your chosen date strategy.',
+            cls: 'storyteller-tag-timeline-desc'
+        });
+
+        // Options section
+        await this.renderOptions(contentEl);
+
+        // Generate button
+        new Setting(contentEl)
+            .setName('Generate preview')
+            .setDesc('Scan notes and preview events that will be created')
+            .addButton(btn => btn
+                .setButtonText('Generate')
+                .setCta()
+                .onClick(() => this.generatePreview())
+            );
+
+        // Preview section
+        const previewSection = contentEl.createDiv({ cls: 'storyteller-tag-timeline-preview-section' });
+        previewSection.createEl('h3', { text: 'Preview' });
+
+        this.previewListEl = previewSection.createDiv({ cls: 'storyteller-tag-timeline-preview-list' });
+        this.renderPreviewList();
+
+        // Action buttons
+        const buttonContainer = new Setting(contentEl);
+        buttonContainer.addButton(btn => btn
+            .setButtonText('Create events')
+            .setCta()
+            .setDisabled(this.previews.length === 0)
+            .onClick(() => this.createEvents())
+        );
+        buttonContainer.addButton(btn => btn
+            .setButtonText(t('cancel') || 'Cancel')
+            .onClick(() => this.close())
+        );
+
+        // Add CSS
+        // Styles are loaded from styles.css.
+    }
+
+    private async renderOptions(containerEl: HTMLElement): Promise<void> {
+        const optionsEl = containerEl.createDiv({ cls: 'storyteller-tag-timeline-options' });
+        optionsEl.createEl('h3', { text: 'Options' });
+
+        // Tag selection
+        const allTags = await this.generator.getAllTags();
+        const tagStats = await this.generator.getTagStatistics();
+
+        new Setting(optionsEl)
+            .setName('Tags to include')
+            .setDesc('Select tags to filter notes (leave empty for all tags)')
+            .addText(text => {
+                text
+                    .setPlaceholder('Enter tags (comma-separated)')
+                    .onChange(value => {
+                        this.selectedTags = value
+                            .split(',')
+                            .map(s => s.trim())
+                            .filter(s => s.length > 0);
+                        this.options.tags = this.selectedTags;
+                    });
+            });
+
+        // Show available tags
+        if (allTags.length > 0) {
+            const tagListEl = optionsEl.createDiv({ cls: 'storyteller-tag-list' });
+            tagListEl.createEl('small', { text: 'Available tags:' });
+            const tagListContainer = tagListEl.createDiv({ cls: 'storyteller-tag-chips' });
+
+            allTags.slice(0, 20).forEach(tag => {
+                const count = tagStats.get(tag) || 0;
+                const chip = tagListContainer.createSpan({
+                    text: `${tag} (${count})`,
+                    cls: 'storyteller-tag-chip'
+                });
+                chip.addEventListener('click', () => {
+                    if (!this.selectedTags.includes(tag)) {
+                        this.selectedTags.push(tag);
+                        this.options.tags = this.selectedTags;
+                        chip.addClass('storyteller-tag-chip-selected');
+                    }
+                });
+            });
+
+            if (allTags.length > 20) {
+                tagListEl.createEl('small', { text: `... and ${allTags.length - 20} more` });
+            }
+        }
+
+        // Date extraction strategy
+        new Setting(optionsEl)
+            .setName('Date extraction strategy')
+            .setDesc('How to extract dates from notes')
+            .addDropdown(dropdown => {
+                dropdown
+                    .addOption('auto', 'Auto (try all methods)')
+                    .addOption('frontmatter', 'From frontmatter')
+                    .addOption('content', 'From content')
+                    .addOption('file-created', 'File creation date')
+                    .addOption('file-modified', 'File modification date')
+                    .setValue(this.options.dateStrategy)
+                    .onChange(value => {
+                        this.options.dateStrategy = value as TagTimelineOptions['dateStrategy'];
+                    });
+            });
+
+        // Frontmatter field
+        new Setting(optionsEl)
+            .setName('Frontmatter date field')
+            .setDesc('Field name to extract date from (when using frontmatter strategy)')
+            .addText(text => {
+                text
+                    .setValue(this.options.dateFrontmatterField || 'date')
+                    .setPlaceholder('Date')
+                    .onChange(value => {
+                        this.options.dateFrontmatterField = value;
+                    });
+            });
+
+        // Include content
+        new Setting(optionsEl)
+            .setName('Include note content')
+            .setDesc('Add note content as event description')
+            .addToggle(toggle => {
+                toggle
+                    .setValue(this.options.includeContent || false)
+                    .onChange(value => {
+                        this.options.includeContent = value;
+                    });
+            });
+
+        // Max content length
+        new Setting(optionsEl)
+            .setName('Max description length')
+            .setDesc('Maximum characters for event description')
+            .addText(text => {
+                text
+                    .setValue(String(this.options.maxContentLength || 500))
+                    .setPlaceholder('500')
+                    .onChange(value => {
+                        this.options.maxContentLength = parseInt(value) || 500;
+                    });
+                text.inputEl.type = 'number';
+            });
+
+        // Default status
+        new Setting(optionsEl)
+            .setName('Default status')
+            .setDesc('Status for generated events')
+            .addText(text => {
+                text
+                    .setValue(this.options.defaultStatus || 'Generated')
+                    .setPlaceholder('Generated')
+                    .onChange(value => {
+                        this.options.defaultStatus = value;
+                    });
+            });
+    }
+
+    /**
+     * Resolve a location ID or name to its display name
+     */
+    private resolveLocationName(locationValue: string): string {
+        // First, try to find by ID
+        const locationById = this.locations.find(loc => loc.id === locationValue);
+        if (locationById) {
+            return locationById.name;
+        }
+        // If not found by ID, try to find by name (in case it's already a name)
+        const locationByName = this.locations.find(loc => loc.name === locationValue);
+        if (locationByName) {
+            return locationByName.name;
+        }
+        // Return original value if no match found
+        return locationValue;
+    }
+
+    private async generatePreview(): Promise<void> {
+        new Notice('Scanning notes for tags...');
+
+        try {
+            this.previews = await this.generator.generateFromTags(this.options);
+
+            if (this.previews.length === 0) {
+                new Notice('No notes found with the selected tags');
+            } else {
+                new Notice(`Found ${this.previews.length} potential events`);
+            }
+
+            this.renderPreviewList();
+
+            // Enable create button if we have previews
+            const createBtn = this.contentEl.querySelector('button.mod-cta') as HTMLButtonElement;
+            if (createBtn) {
+                createBtn.disabled = this.previews.length === 0;
+            }
+        } catch (error) {
+            new Notice(`Error generating preview: ${error}`);
+            
+        }
+    }
+
+    private renderPreviewList(): void {
+        if (!this.previewListEl) return;
+        this.previewListEl.empty();
+
+        if (this.previews.length === 0) {
+            this.previewListEl.createDiv({
+                text: 'No events to preview. Click "Generate Preview" to scan your notes.',
+                cls: 'storyteller-empty-state'
+            });
+            return;
+        }
+
+        // Validate previews
+        const { valid, invalid } = TagTimelineGenerator.validateGeneratedEvents(this.previews);
+
+        // Show validation summary
+        const summaryEl = this.previewListEl.createDiv({ cls: 'storyteller-preview-summary' });
+        summaryEl.createDiv({
+            text: `Valid: ${valid.length}`,
+            cls: 'storyteller-preview-stat storyteller-preview-valid'
+        });
+        if (invalid.length > 0) {
+            summaryEl.createDiv({
+                text: `Invalid: ${invalid.length}`,
+                cls: 'storyteller-preview-stat storyteller-preview-invalid'
+            });
+        }
+
+        // Render valid previews
+        valid.forEach(preview => {
+            this.renderPreviewItem(preview, true);
+        });
+
+        // Render invalid previews
+        invalid.forEach(({ preview, errors }) => {
+            this.renderPreviewItem(preview, false, errors);
+        });
+    }
+
+    private renderPreviewItem(
+        preview: GeneratedEventPreview,
+        isValid: boolean,
+        errors?: string[]
+    ): void {
+        if (!this.previewListEl) return;
+
+        const itemEl = this.previewListEl.createDiv({
+            cls: `storyteller-preview-item ${isValid ? 'valid' : 'invalid'}`
+        });
+
+        // Header
+        const headerEl = itemEl.createDiv({ cls: 'storyteller-preview-header' });
+
+        if (!isValid) {
+            headerEl.createSpan({
+                text: '⚠',
+                cls: 'storyteller-preview-warning'
+            });
+        }
+
+        headerEl.createSpan({
+            text: preview.event.name || 'Untitled',
+            cls: 'storyteller-preview-name'
+        });
+
+        // Confidence badge
+        const confidencePct = Math.round((preview.confidence || 0) * 100);
+        const confidenceClass = confidencePct >= 80 ? 'high' :
+            confidencePct >= 50 ? 'medium' : 'low';
+        headerEl.createSpan({
+            text: `${confidencePct}%`,
+            cls: `storyteller-preview-confidence storyteller-confidence-${confidenceClass}`
+        });
+
+        // Details
+        const detailsEl = itemEl.createDiv({ cls: 'storyteller-preview-details' });
+
+        if (preview.event.dateTime) {
+            detailsEl.createDiv({
+                text: `Date: ${preview.event.dateTime}`,
+                cls: 'storyteller-preview-detail'
+            });
+        }
+
+        detailsEl.createDiv({
+            text: `Source: ${preview.sourceFile.path}`,
+            cls: 'storyteller-preview-detail storyteller-preview-source'
+        });
+
+        detailsEl.createDiv({
+            text: `Method: ${preview.extractionMethod}`,
+            cls: 'storyteller-preview-detail storyteller-preview-method'
+        });
+
+        if (preview.event.characters && preview.event.characters.length > 0) {
+            detailsEl.createDiv({
+                text: `Characters: ${preview.event.characters.join(', ')}`,
+                cls: 'storyteller-preview-detail'
+            });
+        }
+
+        if (preview.event.location) {
+            detailsEl.createDiv({
+                text: `Location: ${this.resolveLocationName(preview.event.location)}`,
+                cls: 'storyteller-preview-detail'
+            });
+        }
+
+        if (preview.event.tags && preview.event.tags.length > 0) {
+            detailsEl.createDiv({
+                text: `Tags: ${preview.event.tags.join(', ')}`,
+                cls: 'storyteller-preview-detail'
+            });
+        }
+
+        // Warnings
+        if (preview.warnings.length > 0) {
+            const warningsEl = detailsEl.createDiv({ cls: 'storyteller-preview-warnings' });
+            preview.warnings.forEach(warning => {
+                warningsEl.createDiv({
+                    text: `⚠ ${warning}`,
+                    cls: 'storyteller-preview-warning-item'
+                });
+            });
+        }
+
+        // Errors (for invalid items)
+        if (errors && errors.length > 0) {
+            const errorsEl = detailsEl.createDiv({ cls: 'storyteller-preview-errors' });
+            errors.forEach(error => {
+                errorsEl.createDiv({
+                    text: `❌ ${error}`,
+                    cls: 'storyteller-preview-error-item'
+                });
+            });
+        }
+    }
+
+    private async createEvents(): Promise<void> {
+        const { valid } = TagTimelineGenerator.validateGeneratedEvents(this.previews);
+
+        if (valid.length === 0) {
+            new Notice('No valid events to create');
+            return;
+        }
+
+        new Notice(`Creating ${valid.length} events...`);
+
+        let created = 0;
+        let failed = 0;
+
+        for (const preview of valid) {
+            try {
+                // Create full event
+                const event: Event = {
+                    id: undefined,
+                    name: preview.event.name || 'Untitled',
+                    dateTime: preview.event.dateTime,
+                    description: preview.event.description,
+                    characters: preview.event.characters,
+                    location: preview.event.location,
+                    tags: preview.event.tags,
+                    status: preview.event.status,
+                    customFields: {
+                        generatedFrom: preview.sourceFile.path,
+                        generationMethod: preview.extractionMethod,
+                        generationConfidence: String(Math.round((preview.confidence || 0) * 100))
+                    }
+                };
+
+                await this.plugin.saveEvent(event);
+                created++;
+            } catch {
+                
+                failed++;
+            }
+        }
+
+        new Notice(`Created ${created} events${failed > 0 ? `, ${failed} failed` : ''}`);
+        this.close();
+    }
+    onClose(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}

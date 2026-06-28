@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "module": "ESNext",
+    "target": "ES6",
+    "allowJs": true,
+    "noImplicitAny": false,
+    "noEmit": true,
+    "moduleResolution": "node",
+    "importHelpers": true,
+    "isolatedModules": true,
+    "strictNullChecks": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "skipLibCheck": true,
+    "lib": [
+      "DOM",
+      "ES5",
+      "ES6",
+      "ES7",
+      "ES2017"
+    ]
+  },
+  "include": [
+    "src/**/*.ts" // <--- Tell TS to include all .ts files in src
+  ],
+  "exclude": [
+    "node_modules", // <--- Only exclude node_modules (and maybe build output folders if needed)
+    "src/vendor/**/*", // Exclude vendor folder from type checking
+    "**/*.backup.ts" // Exclude backup files from type checking
+  ]
+}

@@ -75,6 +75,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.tools/qwen-image/.venv/
 *.egg-info/
 .eggs/
 .pytest_cache/

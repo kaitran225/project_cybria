@@ -1,0 +1,524 @@
+ 
+import { App, Notice, Setting, TextAreaComponent, ButtonComponent, parseYaml, DropdownComponent } from 'obsidian';
+import { t } from '../i18n/strings';
+import StorytellerSuitePlugin from '../main';
+import { Chapter } from '../types';
+import { CharacterSuggestModal } from './CharacterSuggestModal';
+import { LocationSuggestModal } from './LocationSuggestModal';
+import { EventSuggestModal } from './EventSuggestModal';
+import { addImageSelectionButtons } from '../utils/ImageSelectionHelper';
+import { GroupSuggestModal } from './GroupSuggestModal';
+import { parseSectionsFromMarkdown } from '../yaml/EntitySections';
+import { TemplatePickerModal } from './TemplatePickerModal';
+import type { Template, TemplateEntity, TemplateVariableValue } from '../templates/TemplateTypes';
+import { EntityCustomFieldsEditor } from './entity/EntityCustomFieldsEditor';
+import { ResponsiveModal } from './ResponsiveModal';
+import { confirmWithModal } from './ui/ConfirmModal';
+
+export type ChapterModalSubmitCallback = (ch: Chapter) => Promise<void>;
+export type ChapterModalDeleteCallback = (ch: Chapter) => Promise<void>;
+
+type ChapterWithCustomFields = Chapter & {
+    customFields?: Record<string, string>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export class ChapterModal extends ResponsiveModal {
+    plugin: StorytellerSuitePlugin;
+    chapter: Chapter;
+    onSubmit: ChapterModalSubmitCallback;
+    onDelete?: ChapterModalDeleteCallback;
+    isNew: boolean;
+    private readonly customFieldsEditor: EntityCustomFieldsEditor;
+
+    constructor(app: App, plugin: StorytellerSuitePlugin, ch: Chapter | null, onSubmit: ChapterModalSubmitCallback, onDelete?: ChapterModalDeleteCallback) {
+        super(app);
+        this.plugin = plugin;
+        this.isNew = ch == null;
+        this.chapter = ch ? { ...ch } : { name: '', tags: [], linkedCharacters: [], linkedLocations: [], linkedEvents: [], linkedItems: [], linkedGroups: [] };
+        const chapterFields = this.chapter as ChapterWithCustomFields;
+        this.customFieldsEditor = new EntityCustomFieldsEditor(this.app, 'chapter', chapterFields.customFields || {});
+        this.onSubmit = onSubmit;
+        this.onDelete = onDelete;
+        this.modalEl.addClass('storyteller-chapter-modal');
+    }
+
+    onOpen(): void { void (async () => {
+        super.onOpen();
+        const { contentEl, footerEl } = this.createStructuredModalLayout();
+        contentEl.createEl('h2', { text: this.isNew ? t('createNewChapter') : `${t('editChapter')} ${this.chapter.name}` });
+
+        // Auto-apply default template for new chapters
+        if (this.isNew && !this.chapter.name) {
+            const defaultTemplateId = this.plugin.settings.defaultTemplates?.['chapter'];
+            if (defaultTemplateId) {
+                const defaultTemplate = this.plugin.templateManager?.getTemplate(defaultTemplateId);
+                if (defaultTemplate) {
+                    // If template has variables or multiple entities, use TemplateApplicationModal
+                    if ((defaultTemplate.variables && defaultTemplate.variables.length > 0) ||
+                        this.hasMultipleEntities(defaultTemplate)) {
+                        await new Promise<void>((resolve) => {
+                            let resolved = false;
+                            const safeResolve = () => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    resolve();
+                                }
+                            };
+                            void import('./TemplateApplicationModal').then(({ TemplateApplicationModal }) => {
+                                new TemplateApplicationModal(
+                                    this.app,
+                                    this.plugin,
+                                    defaultTemplate,
+                                    (variableValues, entityFileNames) => { void (async () => {
+                                        try {
+                                            await this.applyTemplateToChapterWithVariables(defaultTemplate, variableValues);
+                                            new Notice('Default template applied');
+                                            this.refresh();
+                                        } catch {
+                                            
+                                            new Notice('Error applying default template');
+                                        }
+                                        safeResolve();
+                                    })(); },
+                                    safeResolve // onCancel callback
+                                ).open();
+                            });
+                        });
+                    } else {
+                        // No variables, apply directly
+                        try {
+                            await this.applyTemplateToChapter(defaultTemplate);
+                            new Notice('Default template applied');
+                        } catch {
+                            
+                            new Notice('Error applying default template');
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Template Selector (for new chapters) ---
+        if (this.isNew) {
+            new Setting(contentEl)
+                .setName('Start from template')
+                .setDesc('Optionally start with a pre-configured chapter template')
+                .addButton(button => button
+                    .setButtonText('Choose template')
+                    .setTooltip('Select a chapter template')
+                    .onClick(() => {
+                        new TemplatePickerModal(
+                            this.app,
+                            this.plugin,
+                            (template: Template) => { void (async () => {
+                                // Check if template has variables or multiple entities
+                                if ((template.variables && template.variables.length > 0) ||
+                                    this.hasMultipleEntities(template)) {
+                                    // Use TemplateApplicationModal for variable collection
+                                    await new Promise<void>((resolve) => {
+                                        void import('./TemplateApplicationModal').then(({ TemplateApplicationModal }) => {
+                                            new TemplateApplicationModal(
+                                                this.app,
+                                                this.plugin,
+                                                template,
+                                                (variableValues, entityFileNames) => { void (async () => {
+                                                    try {
+                                                        await this.applyTemplateToChapterWithVariables(template, variableValues);
+                                                        new Notice(`Template "${template.name}" applied`);
+                                                        this.refresh();
+                                                    } catch {
+                                                        
+                                                        new Notice('Error applying template');
+                                                    }
+                                                    resolve();
+                                                })(); }
+                                            ).open();
+                                        });
+                                    });
+                                } else {
+                                    // No variables, apply directly
+                                    await this.applyTemplateToChapter(template);
+                                    this.refresh();
+                                    new Notice(`Template "${template.name}" applied`);
+                                }
+                            })(); },
+                            'chapter'
+                        ).open();
+                    })
+                );
+        }
+
+        new Setting(contentEl)
+            .setName(t('name'))
+            .addText(text => text
+                .setPlaceholder(t('chapterTitlePh'))
+                .setValue(this.chapter.name || '')
+                .onChange(v => this.chapter.name = v)
+            );
+
+        new Setting(contentEl)
+            .setName(t('number') || 'Number')
+            .setDesc(t('orderingNumber') || 'Ordering number (optional)')
+            .addText(text => text
+                .setPlaceholder(t('numberEg'))
+                .setValue(this.chapter.number != null ? String(this.chapter.number) : '')
+                .onChange(v => {
+                    const n = parseInt(v, 10);
+                    this.chapter.number = Number.isFinite(n) ? n : undefined;
+                })
+            );
+
+        new Setting(contentEl)
+            .setName(t('tags') || 'Tags')
+            .addText(text => text
+                .setPlaceholder(t('tagsPh'))
+                .setValue((this.chapter.tags || []).join(', '))
+                .onChange(v => {
+                    const arr = v.split(',').map(s => s.trim()).filter(Boolean);
+                    this.chapter.tags = arr.length ? arr : undefined;
+                })
+            );
+
+        let imageDescEl: HTMLElement | null = null;
+        const profileImageSetting = new Setting(contentEl)
+            .setName(t('profileImage'))
+            .then(s => {
+                imageDescEl = s.descEl.createEl('small', { text: t('currentValue', this.chapter.profileImagePath || t('none')) });
+                s.descEl.addClass('storyteller-modal-setting-vertical');
+            });
+        
+        // Add image selection buttons (Gallery, Upload, Vault, Clear)
+        addImageSelectionButtons(
+            profileImageSetting,
+            this.app,
+            this.plugin,
+            {
+                currentPath: this.chapter.profileImagePath,
+                onSelect: (path) => {
+                    this.chapter.profileImagePath = path;
+                },
+                descriptionEl: imageDescEl || undefined
+            }
+        );
+
+        new Setting(contentEl)
+            .setName(t('summary') || 'Summary')
+            .setClass('storyteller-modal-setting-vertical')
+            .addTextArea((ta: TextAreaComponent) => {
+                ta.setPlaceholder(t('briefChapterSummaryPh'))
+                  .setValue(this.chapter.summary || '')
+                  .onChange(v => this.chapter.summary = v);
+                ta.inputEl.rows = 10;
+            });
+
+        // Custom fields (add only)
+        this.customFieldsEditor.setFields((this.chapter as ChapterWithCustomFields).customFields || {});
+        this.customFieldsEditor.renderSection(contentEl);
+
+        // Book assignment
+        contentEl.createEl('h3', { text: 'Book' });
+        const books = await this.plugin.listBooks();
+        new Setting(contentEl)
+            .setName('Assign to book')
+            .setDesc('Which book this chapter belongs to')
+            .addDropdown((dd: DropdownComponent) => {
+                dd.addOption('', '— none —');
+                for (const b of books) {
+                    dd.addOption(b.id ?? b.name, b.name);
+                }
+                dd.setValue(this.chapter.bookId ?? '');
+                dd.onChange(val => {
+                    if (!val) {
+                        this.chapter.bookId = undefined;
+                        this.chapter.bookName = undefined;
+                    } else {
+                        const picked = books.find(b => (b.id ?? b.name) === val);
+                        this.chapter.bookId = picked?.id ?? val;
+                        this.chapter.bookName = picked?.name ?? val;
+                    }
+                });
+            });
+
+        // Linked entities
+        contentEl.createEl('h3', { text: t('links') });
+
+        const charactersSetting = new Setting(contentEl)
+            .setName(t('characters'));
+        const charactersListEl = charactersSetting.controlEl.createDiv('storyteller-modal-linked-entities');
+        this.renderLinkedEntities(charactersListEl, this.chapter.linkedCharacters, 'characters');
+        charactersSetting.addButton(btn => btn.setButtonText(t('add')).onClick(() => {
+            new CharacterSuggestModal(this.app, this.plugin, (ch) => {
+                if (!Array.isArray(this.chapter.linkedCharacters)) this.chapter.linkedCharacters = [];
+                if (!this.chapter.linkedCharacters.includes(ch.name)) this.chapter.linkedCharacters.push(ch.name);
+                this.renderLinkedEntities(charactersListEl, this.chapter.linkedCharacters, 'characters');
+            }).open();
+        }));
+
+        const locationsSetting = new Setting(contentEl)
+            .setName(t('locations'));
+        const locationsListEl = locationsSetting.controlEl.createDiv('storyteller-modal-linked-entities');
+        this.renderLinkedEntities(locationsListEl, this.chapter.linkedLocations, 'locations');
+        locationsSetting.addButton(btn => btn.setButtonText(t('add')).onClick(() => {
+            new LocationSuggestModal(this.app, this.plugin, (loc) => {
+                if (!loc) return;
+                if (!Array.isArray(this.chapter.linkedLocations)) this.chapter.linkedLocations = [];
+                if (!this.chapter.linkedLocations.includes(loc.name)) this.chapter.linkedLocations.push(loc.name);
+                this.renderLinkedEntities(locationsListEl, this.chapter.linkedLocations, 'locations');
+            }).open();
+        }));
+
+        const eventsSetting = new Setting(contentEl)
+            .setName(t('events'));
+        const eventsListEl = eventsSetting.controlEl.createDiv('storyteller-modal-linked-entities');
+        this.renderLinkedEntities(eventsListEl, this.chapter.linkedEvents, 'events');
+        eventsSetting.addButton(btn => btn.setButtonText(t('add')).onClick(() => {
+            new EventSuggestModal(this.app, this.plugin, (evt) => {
+                if (!Array.isArray(this.chapter.linkedEvents)) this.chapter.linkedEvents = [];
+                if (!this.chapter.linkedEvents.includes(evt.name)) this.chapter.linkedEvents.push(evt.name);
+                this.renderLinkedEntities(eventsListEl, this.chapter.linkedEvents, 'events');
+            }).open();
+        }));
+
+        const itemsSetting = new Setting(contentEl)
+            .setName(t('items'));
+        const itemsListEl = itemsSetting.controlEl.createDiv('storyteller-modal-linked-entities');
+        this.renderLinkedEntities(itemsListEl, this.chapter.linkedItems, 'items');
+        itemsSetting.addButton(btn => btn.setButtonText(t('add')).onClick(async () => {
+            const { PlotItemSuggestModal } = await import('./PlotItemSuggestModal');
+            new PlotItemSuggestModal(this.app, this.plugin, (item) => {
+                if (!Array.isArray(this.chapter.linkedItems)) this.chapter.linkedItems = [];
+                if (!this.chapter.linkedItems.includes(item.name)) this.chapter.linkedItems.push(item.name);
+                this.renderLinkedEntities(itemsListEl, this.chapter.linkedItems, 'items');
+            }).open();
+        }));
+
+        const groupsSetting = new Setting(contentEl)
+            .setName(t('groups'));
+        const groupsListEl = groupsSetting.controlEl.createDiv('storyteller-modal-linked-entities');
+        this.renderLinkedEntities(groupsListEl, this.chapter.linkedGroups, 'groups');
+        groupsSetting.addButton(btn => btn.setButtonText(t('add')).onClick(() => {
+            new GroupSuggestModal(this.app, this.plugin, (g) => {
+                if (!Array.isArray(this.chapter.linkedGroups)) this.chapter.linkedGroups = [];
+                if (!this.chapter.linkedGroups.includes(g.id)) this.chapter.linkedGroups.push(g.id);
+                this.renderLinkedEntities(groupsListEl, this.chapter.linkedGroups, 'groups');
+            }).open();
+        }));
+
+        // Buttons
+        if (!this.isNew && this.onDelete) {
+            this.createFooterButton(footerEl, t('delete'), async () => {
+                if (this.chapter.filePath && await confirmWithModal(this.app, {
+                    title: t('confirm') || 'Confirm',
+                    body: t('confirmDeleteChapter', this.chapter.name),
+                    confirmText: t('delete') || 'Delete',
+                })) {
+                    await this.onDelete!(this.chapter);
+                    this.close();
+                }
+            }, { warning: true });
+        }
+        footerEl.createDiv({ cls: 'storyteller-modal-button-spacer' });
+        this.createFooterButton(footerEl, t('cancel'), () => this.close());
+        this.createFooterButton(footerEl, this.isNew ? t('createChapterBtn') : t('saveChanges'), async () => {
+            if (!this.chapter.name || !this.chapter.name.trim()) {
+                new Notice(t('chapterNameRequired'));
+                return;
+            }
+            this.chapter.summary = this.chapter.summary || '';
+            const customFields = this.customFieldsEditor.getFields();
+            if (!customFields) {
+                return;
+            }
+            (this.chapter as ChapterWithCustomFields).customFields = customFields;
+            await this.onSubmit(this.chapter);
+            this.close();
+        }, { cta: true });
+    })(); }
+
+    // Helper method to render linked entities with individual delete buttons
+    renderLinkedEntities(container: HTMLElement, items: string[] | undefined, entityType: string): void {
+        container.empty();
+        if (!items || items.length === 0) {
+            container.createEl('span', { text: t('none'), cls: 'storyteller-modal-list-empty' });
+            return;
+        }
+        
+        items.forEach((item, index) => {
+            const itemEl = container.createDiv('storyteller-modal-list-item');
+            itemEl.createSpan({ text: item });
+            new ButtonComponent(itemEl)
+                .setClass('storyteller-modal-list-remove')
+                .setTooltip(`Remove ${item}`)
+                .setIcon('cross')
+                .onClick(() => {
+                    // Remove the item from the appropriate array
+                    switch (entityType) {
+                        case 'characters':
+                            if (this.chapter.linkedCharacters) {
+                                this.chapter.linkedCharacters.splice(index, 1);
+                                this.renderLinkedEntities(container, this.chapter.linkedCharacters, entityType);
+                            }
+                            break;
+                        case 'locations':
+                            if (this.chapter.linkedLocations) {
+                                this.chapter.linkedLocations.splice(index, 1);
+                                this.renderLinkedEntities(container, this.chapter.linkedLocations, entityType);
+                            }
+                            break;
+                        case 'events':
+                            if (this.chapter.linkedEvents) {
+                                this.chapter.linkedEvents.splice(index, 1);
+                                this.renderLinkedEntities(container, this.chapter.linkedEvents, entityType);
+                            }
+                            break;
+                        case 'items':
+                            if (this.chapter.linkedItems) {
+                                this.chapter.linkedItems.splice(index, 1);
+                                this.renderLinkedEntities(container, this.chapter.linkedItems, entityType);
+                            }
+                            break;
+                        case 'groups':
+                            if (this.chapter.linkedGroups) {
+                                this.chapter.linkedGroups.splice(index, 1);
+                                this.renderLinkedEntities(container, this.chapter.linkedGroups, entityType);
+                            }
+                            break;
+                    }
+                });
+        });
+    }
+
+    private hasMultipleEntities(template: Template): boolean {
+        let entityCount = 0;
+        if (template.entities.chapters?.length) entityCount += template.entities.chapters.length;
+        if (template.entities.characters?.length) entityCount += template.entities.characters.length;
+        if (template.entities.locations?.length) entityCount += template.entities.locations.length;
+        if (template.entities.events?.length) entityCount += template.entities.events.length;
+        if (template.entities.items?.length) entityCount += template.entities.items.length;
+        if (template.entities.groups?.length) entityCount += template.entities.groups.length;
+        return entityCount > 1;
+    }
+
+    private async applyTemplateToChapter(template: Template): Promise<void> {
+        if (!template.entities.chapters || template.entities.chapters.length === 0) {
+            new Notice('This template does not contain any chapters');
+            return;
+        }
+
+        const templateChapter = template.entities.chapters[0];
+        await this.applyProcessedTemplateToChapter(templateChapter);
+    }
+
+    private async applyTemplateToChapterWithVariables(template: Template, variableValues: Record<string, TemplateVariableValue>): Promise<void> {
+        if (!template.entities.chapters || template.entities.chapters.length === 0) {
+            new Notice('This template does not contain any chapters');
+            return;
+        }
+
+        // Get the first chapter from the template
+        let templateChapter = template.entities.chapters[0];
+
+        // Substitute variables with user-provided values
+        const { VariableSubstitution } = await import('../templates/VariableSubstitution');
+        const substitutionResult = VariableSubstitution.substituteEntity(
+            templateChapter,
+            variableValues,
+            false // non-strict mode
+        );
+        templateChapter = substitutionResult.value;
+
+        if (substitutionResult.warnings.length > 0) {
+        	// intentional
+            
+        }
+
+        // Apply the substituted template
+        await this.applyProcessedTemplateToChapter(templateChapter);
+    }
+
+    private async applyProcessedTemplateToChapter(templateChapter: TemplateEntity<Chapter>): Promise<void> {
+        const { yamlContent, markdownContent, sectionContent, customYamlFields } = templateChapter;
+
+        let fields: Record<string, unknown> = { ...templateChapter };
+        delete fields.templateId;
+        delete fields.yamlContent;
+        delete fields.markdownContent;
+        delete fields.sectionContent;
+        delete fields.customYamlFields;
+        delete fields.id;
+        delete fields.filePath;
+        let allTemplateSections: Record<string, string> = {};
+
+        // Handle new format: yamlContent (parse YAML string)
+        if (yamlContent && typeof yamlContent === 'string') {
+            try {
+                const parsed = parseYaml(yamlContent) as unknown;
+                if (isRecord(parsed)) {
+                    fields = { ...fields, ...parsed };
+                }
+                
+            } catch {
+            	// intentional
+                
+            }
+        } else if (customYamlFields) {
+            // Old format: merge custom YAML fields
+            fields = { ...fields, ...customYamlFields };
+        }
+
+        // Handle new format: markdownContent (parse sections)
+        if (markdownContent && typeof markdownContent === 'string') {
+            try {
+                const parsedSections = parseSectionsFromMarkdown(markdownContent);
+                allTemplateSections = parsedSections;
+
+                // Map well-known sections to entity properties
+                if ('Summary' in parsedSections) {
+                    fields.summary = parsedSections['Summary'];
+                }
+                
+            } catch {
+            	// intentional
+                
+            }
+        } else if (sectionContent) {
+            // Old format: apply section content
+            for (const [k, v] of Object.entries(sectionContent)) { allTemplateSections[k] = v; }
+            for (const [sectionName, content] of Object.entries(sectionContent)) {
+                const propName = sectionName.toLowerCase().replace(/\s+/g, '');
+                fields[propName] = content;
+            }
+        }
+
+        // Apply all fields to the chapter
+        Object.assign(this.chapter, fields);
+        if (Object.keys(allTemplateSections).length > 0) {
+            Object.defineProperty(this.chapter, '_templateSections', {
+                value: allTemplateSections,
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
+        }
+        
+
+        // Clear relationships as they reference template entities
+        this.chapter.linkedCharacters = [];
+        this.chapter.linkedLocations = [];
+        this.chapter.linkedEvents = [];
+        this.chapter.linkedItems = [];
+        this.chapter.linkedGroups = [];
+    }
+
+    private refresh(): void {
+        void this.onOpen();
+    }
+
+    onClose(): void { this.contentEl.empty(); }
+}
+
+
