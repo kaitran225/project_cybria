@@ -35,6 +35,22 @@ export class ImageServerRunner {
 		return path.join(toolsDir, ".venv", "Scripts", "pip.exe");
 	}
 
+	resolveSafetensorDir(vaultBasePath: string): string {
+		const repoRoot = path.dirname(path.dirname(vaultBasePath));
+		return path.join(repoRoot, ".tools", "safetensor");
+	}
+
+	private serverEnv(toolsDir: string): NodeJS.ProcessEnv {
+		return {
+			...process.env,
+			QWEN_IMAGE_MAX_SIDE: "512",
+			QWEN_IMAGE_LIGHTNING: "1",
+			QWEN_IMAGE_COMPILE: "0",
+			QWEN_LORA_DIR: path.join(path.dirname(toolsDir), "safetensor"),
+			PYTHONUNBUFFERED: "1",
+		};
+	}
+
 	isRunning(): boolean {
 		return this.proc !== null;
 	}
@@ -91,7 +107,7 @@ export class ImageServerRunner {
 			const proc = spawn(py, ["check_env.py"], {
 				cwd: toolsDir,
 				windowsHide: true,
-				env: { ...process.env, QWEN_IMAGE_MAX_SIDE: "768" },
+				env: this.serverEnv(toolsDir),
 			});
 			let stdout = "";
 			proc.stdout?.on("data", (c: Buffer) => {
@@ -142,11 +158,7 @@ export class ImageServerRunner {
 		const proc = spawn(py, ["server.py"], {
 			cwd: toolsDir,
 			windowsHide: true,
-			env: {
-				...process.env,
-				QWEN_IMAGE_MAX_SIDE: "768",
-				PYTHONUNBUFFERED: "1",
-			},
+			env: this.serverEnv(toolsDir),
 		}) as ChildProcessWithoutNullStreams;
 		this.proc = proc;
 		this.attachStreams(proc, onLine);

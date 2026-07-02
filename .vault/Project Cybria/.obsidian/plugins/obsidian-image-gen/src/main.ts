@@ -9,6 +9,7 @@ import type { GenerateProgress } from "./generate-options";
 
 interface PersistedData extends Partial<ImageGenSettings> {
 	recentOutputs?: OutputRecord[];
+	migratedFast512?: boolean;
 }
 
 export default class ImageGenPlugin extends Plugin {
@@ -57,6 +58,21 @@ export default class ImageGenPlugin extends Plugin {
 		const data = (await this.loadData()) as PersistedData | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 		this.recentOutputs = data?.recentOutputs ?? [];
+
+		if (!data?.migratedFast512) {
+			const s = this.settings;
+			if (s.width === 768 && s.height === 768 && s.steps === 20 && s.cfg === 4) {
+				s.width = 512;
+				s.height = 512;
+				s.steps = 8;
+				s.cfg = 1.0;
+			}
+			await this.saveData({
+				...s,
+				recentOutputs: this.recentOutputs,
+				migratedFast512: true,
+			});
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -64,6 +80,7 @@ export default class ImageGenPlugin extends Plugin {
 			...this.settings,
 			recentOutputs: this.recentOutputs,
 		});
+		this.refreshViews();
 	}
 
 	async activateView(): Promise<void> {
@@ -89,7 +106,12 @@ export default class ImageGenPlugin extends Plugin {
 	refreshViews(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_IMAGE_GEN)) {
 			const view = leaf.view;
-			if (view instanceof ImageGenView) view.renderOutput();
+			if (view instanceof ImageGenView) {
+				view.renderGenParams();
+				view.renderModelPicker();
+				view.renderLoraPicker();
+				view.renderOutput();
+			}
 		}
 	}
 
@@ -122,13 +144,16 @@ export default class ImageGenPlugin extends Plugin {
 		report(12, `Generating ${s.width}×${s.height}…`);
 		const result = await generateImage(s.serverUrl, {
 			prompt,
+			model: s.modelId,
 			width: s.width,
 			height: s.height,
 			steps: s.steps,
 			cfg: s.cfg,
 			seed: s.seed || undefined,
 			negativePrompt: s.negativePrompt,
-		});
+			lora: s.lora || undefined,
+			loraScale: s.loraScale,
+		}, s.generateTimeoutMinutes);
 
 		report(96, "Saving to vault…");
 
@@ -172,7 +197,7 @@ class ImageGenSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Image generation" });
 		containerEl.createEl("p", {
-			text: "Open the Image Gen sidebar (ribbon icon) to launch the server, check health, and view output.",
+			text: "Size, steps, and model are in the Image Gen sidebar. Use this page for server paths and output folder.",
 		});
 
 		new Setting(containerEl)
@@ -187,8 +212,8 @@ class ImageGenSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Qwen tools path")
-			.setDesc("Optional override. Default: <repo>/.tools/qwen-image")
+			.setName("Tools path")
+			.setDesc("Leave blank to use the default folder next to the server.")
 			.addText((t) =>
 				t
 					.setValue(this.plugin.settings.qwenToolsPath)
@@ -210,58 +235,15 @@ class ImageGenSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Width")
+			.setName("Generation timeout (minutes)")
+			.setDesc("0 = no limit. Increase only if you want to cap long runs.")
 			.addText((t) =>
 				t
-					.setValue(String(this.plugin.settings.width))
+					.setValue(String(this.plugin.settings.generateTimeoutMinutes))
 					.onChange(async (v) => {
-						this.plugin.settings.width = Number(v) || 768;
+						this.plugin.settings.generateTimeoutMinutes = Math.max(0, Number(v) || 0);
 						await this.plugin.saveSettings();
 					})
 			);
-
-		new Setting(containerEl)
-			.setName("Height")
-			.addText((t) =>
-				t
-					.setValue(String(this.plugin.settings.height))
-					.onChange(async (v) => {
-						this.plugin.settings.height = Number(v) || 768;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Steps")
-			.addText((t) =>
-				t
-					.setValue(String(this.plugin.settings.steps))
-					.onChange(async (v) => {
-						this.plugin.settings.steps = Number(v) || 20;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("CFG scale")
-			.addText((t) =>
-				t
-					.setValue(String(this.plugin.settings.cfg))
-					.onChange(async (v) => {
-						this.plugin.settings.cfg = Number(v) || 4;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Negative prompt")
-			.addTextArea((t) => {
-				t.setValue(this.plugin.settings.negativePrompt);
-				t.inputEl.rows = 2;
-				t.onChange(async (v) => {
-					this.plugin.settings.negativePrompt = v;
-					await this.plugin.saveSettings();
-				});
-			});
 	}
 }

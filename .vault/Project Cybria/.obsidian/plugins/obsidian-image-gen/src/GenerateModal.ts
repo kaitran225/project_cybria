@@ -22,14 +22,19 @@ export class GenerateModal extends Modal {
 			.addTextArea((area) => {
 				area.setValue(this.prompt);
 				area.inputEl.rows = 5;
+				area.inputEl.addClass("image-gen-prompt");
 				area.onChange((v) => (this.prompt = v));
 				window.setTimeout(() => area.inputEl.focus(), 0);
 			});
 
+		const s = this.plugin.settings;
+		contentEl.createDiv({
+			cls: "image-gen-modal-params",
+			text: `${s.width}×${s.height} · ${s.steps} steps`,
+		});
+
 		const status = contentEl.createDiv({ cls: "image-gen-status" });
-		status.setText(
-			`${this.plugin.settings.width}×${this.plugin.settings.height} · ${this.plugin.settings.steps} steps`
-		);
+		status.setText("Ready to generate");
 
 		new Setting(contentEl)
 			.addButton((btn) =>
@@ -56,7 +61,10 @@ export class GenerateModal extends Modal {
 			new Notice(`Image saved: ${path}`);
 			this.close();
 		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
+			const raw = e instanceof Error ? e.message : String(e);
+			const msg = /aborted|AbortError/i.test(raw)
+				? "Generation stopped. Check the Server tab — it may still be working."
+				: raw;
 			statusEl.setText(msg);
 			new Notice(msg, 8000);
 		} finally {
