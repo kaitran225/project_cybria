@@ -9,6 +9,8 @@ export class NovelView extends ItemView {
 	private terminalEl!: HTMLElement;
 	private writeOutputEl!: HTMLElement;
 	private summarizeOutputEl!: HTMLElement;
+	private summarizeSourcesEl!: HTMLElement;
+	private summarizeStatusEl!: HTMLElement;
 	private writeInputEl!: HTMLTextAreaElement;
 	private summarizeInputEl!: HTMLTextAreaElement;
 
@@ -35,6 +37,12 @@ export class NovelView extends ItemView {
 
 	setSummarizeText(text: string): void {
 		if (this.summarizeInputEl) this.summarizeInputEl.value = text;
+		this.plugin.settings.summarizeMode = "direct";
+	}
+
+	setSummarizeQuery(query: string): void {
+		if (this.summarizeInputEl) this.summarizeInputEl.value = query;
+		this.plugin.settings.summarizeMode = "semantic";
 	}
 
 	private core() {
@@ -137,18 +145,79 @@ export class NovelView extends ItemView {
 					.catch((e) => new Notice(e instanceof Error ? e.message : String(e)));
 			};
 		}
+
+		const modeRow = el.createDiv("cnv-mode-row");
+		const directBtn = modeRow.createEl("button", { text: "Direct", cls: "cnv-pill" });
+		const semanticBtn = modeRow.createEl("button", {
+			text: "Semantic (vault)",
+			cls: "cnv-pill",
+		});
+		const syncModeUi = () => {
+			const mode = this.plugin.settings.summarizeMode;
+			directBtn.toggleClass("is-active", mode === "direct");
+			semanticBtn.toggleClass("is-active", mode === "semantic");
+			this.summarizeInputEl.placeholder =
+				mode === "semantic"
+					? "Vault topic or question (Enzyme catalyze)…"
+					: "Text to summarize…";
+		};
+		directBtn.onclick = () => {
+			this.plugin.settings.summarizeMode = "direct";
+			void this.plugin.saveSettings();
+			syncModeUi();
+			void this.refreshSemanticStatus();
+		};
+		semanticBtn.onclick = () => {
+			this.plugin.settings.summarizeMode = "semantic";
+			void this.plugin.saveSettings();
+			syncModeUi();
+			void this.refreshSemanticStatus();
+		};
+
+		this.summarizeStatusEl = el.createDiv("cnv-semantic-status");
 		this.summarizeInputEl = el.createEl("textarea", {
 			cls: "cnv-textarea",
 			attr: { placeholder: "Text to summarize…", rows: "8" },
 		});
+		syncModeUi();
+		void this.refreshSemanticStatus();
+
 		const actions = el.createDiv("cnv-actions");
 		const sumBtn = actions.createEl("button", { text: "Summarize", cls: "mod-cta" });
 		const replaceBtn = actions.createEl("button", { text: "Replace selection" });
 		const saveBtn = actions.createEl("button", { text: "Save to file" });
+		this.summarizeSourcesEl = el.createDiv("cnv-sources");
 		this.summarizeOutputEl = el.createDiv("cnv-output");
 		sumBtn.onclick = () => void this.runSummarize();
 		replaceBtn.onclick = () => this.replaceSelection();
 		saveBtn.onclick = () => void this.saveSummary();
+	}
+
+	private async refreshSemanticStatus(): Promise<void> {
+		if (!this.summarizeStatusEl) return;
+		if (this.plugin.settings.summarizeMode !== "semantic") {
+			this.summarizeStatusEl.empty();
+			return;
+		}
+		this.summarizeStatusEl.setText("Checking Enzyme index…");
+		try {
+			const { enzyme, indexed } = await this.core().semantic.isAvailable();
+			if (!enzyme) {
+				this.summarizeStatusEl.setText(
+					"Enzyme CLI not found. Install from https://enzyme.garden and run `enzyme init -p <vault>`."
+				);
+			} else if (!indexed) {
+				this.summarizeStatusEl.setText(
+					"Vault not indexed. Run `enzyme init -p <vault>` in a terminal."
+				);
+			} else {
+				this.summarizeStatusEl.setText("Enzyme index ready — semantic search is local.");
+			}
+		} catch (e) {
+			this.summarizeStatusEl.setText(
+				`Status check failed: ${e instanceof Error ? e.message : String(e)}`
+			);
+		}
 	}
 
 	private buildServerPane(el: HTMLElement): void {
@@ -237,21 +306,33 @@ export class NovelView extends ItemView {
 	private async runSummarize(): Promise<void> {
 		const text = this.summarizeInputEl.value.trim();
 		if (!text) {
-			new Notice("Enter text to summarize");
+			new Notice(
+				this.plugin.settings.summarizeMode === "semantic"
+					? "Enter a vault topic or question"
+					: "Enter text to summarize"
+			);
 			return;
 		}
-		this.summarizeOutputEl.setText("Summarizing…");
+		const mode = this.plugin.settings.summarizeMode;
+		this.summarizeOutputEl.setText(
+			mode === "semantic" ? "Searching vault & summarizing…" : "Summarizing…"
+		);
+		this.summarizeSourcesEl.empty();
 		try {
 			const core = this.core();
 			const h = await core.summarize.ping(this.plugin.settings.summarizeServerUrl);
 			if (!h.ready) throw new Error("Summarize server not ready");
-			const sumModel = core.switcher.getActiveModel("summarize");
-			const summary = await core.summarize.summarize(
-				text,
-				sumModel,
-				this.plugin.settings.summarizeServerUrl
-			);
-			this.summarizeOutputEl.setText(summary);
+			const result = await core.semantic.summarize({
+				query: text,
+				directText: mode === "direct" ? text : undefined,
+				modelId: core.switcher.getActiveModel("summarize"),
+				summarizeUrl: this.plugin.settings.summarizeServerUrl,
+			});
+			this.summarizeOutputEl.setText(result.summary);
+			if (result.sourcesText) {
+				this.summarizeSourcesEl.createEl("h4", { text: "Sources" });
+				this.summarizeSourcesEl.createDiv({ text: result.sourcesText });
+			}
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			this.summarizeOutputEl.setText(`Error: ${msg}`);

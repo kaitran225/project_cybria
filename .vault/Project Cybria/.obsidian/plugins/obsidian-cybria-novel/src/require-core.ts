@@ -73,6 +73,27 @@ export interface CybriaCoreApi {
 		onChange(fn: (slot: ModelSlot, state: SlotState) => void): () => void;
 		listModels(slot: ModelSlot): Array<{ id: string; name: string; runnable: string; note?: string }>;
 	};
+	semantic: {
+		isAvailable(): Promise<{ enzyme: boolean; indexed: boolean }>;
+		search(query: string, limit?: number): Promise<{
+			query: string;
+			results: Array<{ file_path: string; relativePath: string; content: string; similarity: number }>;
+			top_contributing_catalysts: Array<{ text?: string; entity?: string }>;
+		}>;
+		summarize(opts: {
+			query: string;
+			limit?: number;
+			modelId?: string;
+			summarizeUrl?: string;
+			directText?: string;
+		}): Promise<{
+			summary: string;
+			sources: Array<{ file_path: string; relativePath: string; content: string; similarity: number }>;
+			sourcesText: string;
+			mode: "semantic" | "direct";
+			partials?: string[];
+		}>;
+	};
 	runner(server: "llm" | "summarize" | "tts" | "image"): {
 		resolveToolsDir(vaultBasePath: string, override?: string): string;
 		isRunning(): boolean;

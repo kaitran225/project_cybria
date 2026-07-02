@@ -9,6 +9,7 @@ import {
 	type ModelPathsConfig,
 } from "./model-paths";
 import { ModelSwitcher } from "./model-switcher";
+import { SemanticSummarizer } from "./semantic-summarize";
 import {
 	CybriaServerRunner,
 	QWEN_IMAGE_ENV,
@@ -23,6 +24,11 @@ export type { ModelPathsConfig } from "./model-paths";
 export type { CybriaServerKey } from "./servers";
 export type { CybriaServerRunner, ReqCheckResult, ServerEnvExtra } from "./server-runner";
 export type { SlotState, SwitchStatus } from "./model-switcher";
+export type {
+	SemanticSummarizeOptions,
+	SemanticSummarizeResult,
+} from "./semantic-summarize";
+export type { CatalyzeHit, CatalyzeResponse } from "./enzyme/catalyze";
 export { CYBRIA_CORE_ID, CYBRIA_SERVERS } from "./servers";
 export { SLOT_LABELS, MODEL_CATALOG } from "./catalog";
 
@@ -35,6 +41,7 @@ export class CybriaCoreApi {
 	readonly tts: TtsClient;
 	readonly image: ImageClient;
 	readonly switcher: ModelSwitcher;
+	readonly semantic: SemanticSummarizer;
 
 	private readonly runners = new Map<string, CybriaServerRunner>();
 
@@ -48,6 +55,7 @@ export class CybriaCoreApi {
 		this.tts = new TtsClient(CYBRIA_SERVERS.tts.defaultUrl);
 		this.image = new ImageClient(CYBRIA_SERVERS.image.defaultUrl);
 		this.switcher = new ModelSwitcher(this, getActiveModels, saveActiveModel);
+		this.semantic = new SemanticSummarizer(this);
 	}
 
 	vaultPath(): string {

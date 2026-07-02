@@ -37,6 +37,16 @@ export default class CybriaNovelPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
+			id: "summarize-vault-topic",
+			name: "Summarize vault topic (semantic)",
+			callback: () => {
+				void this.activateView().then(() => {
+					const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_CYBRIA_NOVEL)[0]?.view;
+					if (view instanceof NovelView) view.setSummarizeQuery("");
+				});
+			},
+		});
+		this.addCommand({
 			id: "continue-scene",
 			name: "Continue scene from selection",
 			editorCallback: (editor) => {

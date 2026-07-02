@@ -54,21 +54,6 @@ Invoke-PluginBuild "obsidian-local-llm-hub" {
     npm run build
 }
 
-Invoke-PluginBuild "obsidian-enzyme" {
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        bun run build
-    } else {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            npm install --legacy-peer-deps
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        }
-        npm run build
-    }
-}
-
 Invoke-PluginBuild "obsidian-color-palette" {
     npm install --legacy-peer-deps
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

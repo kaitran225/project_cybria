@@ -5,6 +5,7 @@ export interface NovelSettings {
 	summarizeToolsPath: string;
 	novelModelId: string;
 	summarizeModelId: string;
+	summarizeMode: "direct" | "semantic";
 	summariesFolder: string;
 	writePrompt: string;
 	terminalHeight: number;
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: NovelSettings = {
 	summarizeToolsPath: "",
 	novelModelId: "wanabi-novelist-12b",
 	summarizeModelId: "bart-large-cnn",
+	summarizeMode: "direct",
 	summariesFolder: "Summaries",
 	writePrompt:
 		"Continue this scene in vivid prose. Match tone and POV. Do not summarize — write the next paragraphs.",
