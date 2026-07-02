@@ -9,6 +9,7 @@ import os
 import random
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +51,21 @@ DEFAULT_LORA_SCALE = float(os.environ.get("QWEN_LORA_DEFAULT_SCALE", "0.85"))
 LIGHTNING_ADAPTER = "lightning"
 STYLE_ADAPTER = "style"
 
-app = FastAPI(title="qwen-image", version="0.5.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _refresh_lora_catalog()
+    if os.environ.get("QWEN_IMAGE_WARMUP", "0") == "1":
+        try:
+            _load_pipeline(DEFAULT_MODEL_ID)
+        except Exception as exc:
+            _log(f"[warmup] model load failed: {exc}")
+    else:
+        _log("[startup] idle — model loads when you click Start")
+    yield
+
+
+app = FastAPI(title="qwen-image", version="0.5.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -66,6 +81,7 @@ _generating = threading.Lock()
 _loading = False
 _ready = False
 _load_error: str | None = None
+_pending_model_id: str | None = None
 _lightning_loaded = False
 _lightning_weight = ""
 _active_style_lora: str | None = None
@@ -166,13 +182,14 @@ def _unload_pipeline() -> None:
 
 
 def _place_pipe(pipe: Any, spec: ModelSpec) -> None:
-    global _pipe, _ready, _loaded_model_id, _active_spec, _loading
+    global _pipe, _ready, _loaded_model_id, _active_spec, _loading, _pending_model_id
     with _pipe_lock:
         _pipe = pipe
         _loaded_model_id = spec.id
         _active_spec = spec
         _ready = True
         _loading = False
+        _pending_model_id = None
 
 
 def _apply_memory_opts(pipe: Any) -> None:
@@ -314,7 +331,9 @@ def _load_qwen(spec: ModelSpec) -> Any:
     loader = _QwenPipeline if _QwenPipeline is not DiffusionPipeline else DiffusionPipeline
     vram = _gpu_mem_gb()
     _log(f"[load] qwen {spec.repo_id} cuda={torch.cuda.is_available()} vram={vram:.1f}GB")
+    _log(f"[load] fetching + loading weights for {spec.id}…")
     pipe = loader.from_pretrained(spec.repo_id, torch_dtype=dtype)
+    _log(f"[load] weights ready for {spec.id}")
 
     if torch.cuda.is_available():
         if vram <= VRAM_OFFLOAD_GB:
@@ -347,11 +366,13 @@ def _load_sdxl(spec: ModelSpec) -> Any:
     global _offload_mode, _active_style_lora, _lightning_loaded
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     _log(f"[load] sdxl {spec.repo_id} cuda={torch.cuda.is_available()}")
+    _log(f"[load] fetching + loading weights for {spec.id} (first run downloads ~6GB)…")
     pipe = StableDiffusionXLPipeline.from_pretrained(
         spec.repo_id,
         torch_dtype=dtype,
         use_safetensors=True,
     )
+    _log(f"[load] weights ready for {spec.id}")
     if torch.cuda.is_available():
         pipe.enable_model_cpu_offload()
         _offload_mode = "cpu_offload"
@@ -366,8 +387,9 @@ def _load_sdxl(spec: ModelSpec) -> Any:
 
 
 def _load_pipeline(model_id: str | None = None) -> Any:
-    global _loading, _load_error
+    global _loading, _load_error, _pending_model_id
     spec = get_model(model_id or _loaded_model_id or DEFAULT_MODEL_ID)
+    _pending_model_id = spec.id
 
     with _pipe_lock:
         if _pipe is not None and _loaded_model_id == spec.id:
@@ -378,6 +400,8 @@ def _load_pipeline(model_id: str | None = None) -> Any:
     if _pipe is not None:
         _log(f"[load] switching model → {spec.id}")
         _unload_pipeline()
+    else:
+        _log(f"[load] loading {spec.id} ({spec.family})…")
 
     with _pipe_lock:
         _loading = True
@@ -401,20 +425,46 @@ def _load_pipeline(model_id: str | None = None) -> Any:
         with _pipe_lock:
             _load_error = str(e)
             _loading = False
+            _pending_model_id = None
         raise
 
 
-def _run_inference(pipe: Any, spec: ModelSpec, kwargs: dict[str, Any]) -> Any:
+def _make_progress_callback(total: int, label: str) -> Any:
+    """Diffusers step-end callback that logs throttled progress to the terminal."""
+    state = {"last": 0.0}
+
+    def _cb(_pipe: Any, step: int, _timestep: Any, cbk: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        done = step + 1
+        if done >= total or now - state["last"] >= 1.0:
+            state["last"] = now
+            pct = int(done / total * 100)
+            bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+            _log(f"[generate] {label} {bar} {pct}% ({done}/{total})")
+        return cbk
+
+    return _cb
+
+
+def _run_inference(pipe: Any, spec: ModelSpec, kwargs: dict[str, Any], progress: Any = None) -> Any:
+    if progress is not None:
+        kwargs = dict(kwargs)
+        kwargs["callback_on_step_end"] = progress
     if spec.family == "sdxl":
         kwargs = dict(kwargs)
         cfg = kwargs.pop("true_cfg_scale", kwargs.get("guidance_scale", 7.5))
         kwargs["guidance_scale"] = cfg
-        return pipe(**kwargs)
+        try:
+            return pipe(**kwargs)
+        except TypeError:
+            kwargs.pop("callback_on_step_end", None)
+            return pipe(**kwargs)
     try:
         return pipe(**kwargs)
     except TypeError:
         kwargs = dict(kwargs)
         kwargs.pop("true_cfg_scale", None)
+        kwargs.pop("callback_on_step_end", None)
         kwargs["guidance_scale"] = kwargs.get("guidance_scale", 1.0)
         return pipe(**kwargs)
 
@@ -485,7 +535,12 @@ def list_loras(model: str | None = None, refresh: bool = False) -> dict[str, Any
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    spec = _active_spec or get_model(DEFAULT_MODEL_ID)
+    if _loading and _pending_model_id:
+        spec = get_model(_pending_model_id)
+    elif _active_spec is not None:
+        spec = _active_spec
+    else:
+        spec = get_model(_loaded_model_id or DEFAULT_MODEL_ID)
     return {
         "ready": _ready,
         "loading": _loading,
@@ -575,7 +630,9 @@ def generate(body: GenerateBody) -> dict[str, Any]:
                 warnings.append(f"OOM at {width}×{height} — retried at {w}×{h}")
             _clear_cuda()
             try:
-                result = _run_inference(pipe, spec, kwargs)
+                _log(f"[generate] sampling {steps} steps at {w}x{h}…")
+                progress = _make_progress_callback(steps, f"{w}x{h}")
+                result = _run_inference(pipe, spec, kwargs, progress)
                 width, height = w, h
                 break
             except torch.cuda.OutOfMemoryError as e:
@@ -617,15 +674,11 @@ def generate(body: GenerateBody) -> dict[str, Any]:
     }
 
 
-@app.on_event("startup")
-def warmup() -> None:
-    _refresh_lora_catalog()
-    if os.environ.get("QWEN_IMAGE_WARMUP", "1") == "1":
-        try:
-            _load_pipeline(DEFAULT_MODEL_ID)
-        except Exception as exc:
-            _log(f"[warmup] model load failed: {exc}")
-
-
 if __name__ == "__main__":
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from cybria_log import quiet_uvicorn
+
+    quiet_uvicorn()
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info", access_log=False)

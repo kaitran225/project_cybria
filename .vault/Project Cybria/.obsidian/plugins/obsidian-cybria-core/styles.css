@@ -772,40 +772,130 @@
 	overflow-y: auto;
 	font-family: var(--font-monospace);
 	font-size: 11px;
-	line-height: 1.45;
+	line-height: 1.5;
 	background: #0d1117;
 	color: #c9d1d9;
-	border: 1px solid var(--background-modifier-border);
+	border: 1px solid #30363d;
 	border-radius: var(--cy-radius-sm);
-	padding: 8px 10px;
+	padding: 6px 0;
 	scrollbar-width: thin;
 	user-select: text;
 	cursor: text;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .ccore-terminal-line {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 1px 10px;
 	white-space: pre-wrap;
-	word-break: break-all;
+	word-break: break-word;
+	border-left: 2px solid transparent;
+}
+
+.ccore-terminal-line:hover {
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.ccore-terminal-line .tlog-tag {
+	flex-shrink: 0;
+	font-size: 9px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	padding: 1px 5px;
+	border-radius: 4px;
+	margin-top: 1px;
+	line-height: 1.4;
+}
+
+.ccore-terminal-line .tlog-body {
+	flex: 1;
+	min-width: 0;
+}
+
+.tlog-tag-gateway {
+	background: rgba(121, 192, 255, 0.15);
+	color: #79c0ff;
+}
+
+.tlog-tag-llm {
+	background: rgba(63, 185, 80, 0.15);
+	color: #3fb950;
+}
+
+.tlog-tag-summarize {
+	background: rgba(210, 168, 255, 0.15);
+	color: #d2a8ff;
+}
+
+.tlog-tag-tts {
+	background: rgba(255, 166, 87, 0.15);
+	color: #ffa657;
+}
+
+.tlog-tag-image {
+	background: rgba(255, 123, 114, 0.15);
+	color: #ff7b72;
+}
+
+.tlog-tag-action {
+	background: rgba(86, 212, 221, 0.15);
+	color: #56d4dd;
+}
+
+.tlog-tag-default {
+	background: rgba(139, 148, 158, 0.15);
+	color: #8b949e;
+}
+
+.ccore-terminal-line.tlog-comment {
+	color: #8b949e;
+	font-style: italic;
+	border-left-color: #30363d;
 }
 
 .ccore-terminal-line.tlog-cmd {
 	color: #79c0ff;
+	border-left-color: #388bfd;
+}
+
+.ccore-terminal-line.tlog-meta {
+	color: #6e7681;
+	font-size: 10px;
+	padding-left: 22px;
 }
 
 .ccore-terminal-line.tlog-info {
 	color: #a5d6ff;
+	border-left-color: #388bfd;
 }
 
 .ccore-terminal-line.tlog-ok {
 	color: #3fb950;
+	border-left-color: #238636;
 }
 
 .ccore-terminal-line.tlog-warn {
 	color: #d29922;
+	border-left-color: #9e6a03;
 }
 
 .ccore-terminal-line.tlog-err {
 	color: #f85149;
+	border-left-color: #da3633;
+	background: rgba(248, 81, 73, 0.06);
+}
+
+.ccore-terminal-line.tlog-stderr-info {
+	color: #6e7681;
+}
+
+.ccore-terminal-line.tlog-progress {
+	color: #484f58;
+	font-size: 10px;
+	opacity: 0.85;
 }
 
 .ccore-terminal-line .ansi-bold {

@@ -247,4 +247,8 @@ def download(req: DownloadRequest | None = None) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from cybria_log import quiet_uvicorn
+
+    quiet_uvicorn()
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info", access_log=False)

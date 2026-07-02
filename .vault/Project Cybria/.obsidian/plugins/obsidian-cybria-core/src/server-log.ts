@@ -1,3 +1,5 @@
+import { shouldSkipTerminalLine } from "./terminal-ansi";
+
 export type LogListener = (line: string) => void;
 
 /** Shared terminal buffer for all Cybria Python servers. */
@@ -11,6 +13,7 @@ export class ServerLog {
 	}
 
 	append(line: string): void {
+		if (shouldSkipTerminalLine(line)) return;
 		this.lines.push(line);
 		if (this.lines.length > this.maxLines) this.lines.shift();
 		console.log(`[cybria] ${line}`);

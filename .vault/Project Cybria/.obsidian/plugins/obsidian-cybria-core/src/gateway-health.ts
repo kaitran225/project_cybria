@@ -13,12 +13,12 @@ export function parseServiceHealth(raw: Record<string, unknown> | undefined): Pa
 	if (!raw) {
 		return { state: "offline", label: "offline", model: "—", detail: "No health data" };
 	}
-	if (typeof raw.error === "string" && raw.error) {
+	if (raw.stopped) {
 		return {
-			state: "error",
-			label: "error",
-			model: String(raw.model_id ?? raw.model_name ?? "—"),
-			detail: raw.error,
+			state: "stopped",
+			label: "idle",
+			model: "—",
+			detail: "Click Start to run",
 		};
 	}
 	if (raw.loading) {
@@ -26,7 +26,15 @@ export function parseServiceHealth(raw: Record<string, unknown> | undefined): Pa
 			state: "loading",
 			label: "loading",
 			model: String(raw.model_id ?? raw.model_name ?? "—"),
-			detail: "Model is loading…",
+			detail: "Starting…",
+		};
+	}
+	if (typeof raw.error === "string" && raw.error) {
+		return {
+			state: "error",
+			label: "error",
+			model: String(raw.model_id ?? raw.model_name ?? "—"),
+			detail: raw.error,
 		};
 	}
 	if (raw.ready) {

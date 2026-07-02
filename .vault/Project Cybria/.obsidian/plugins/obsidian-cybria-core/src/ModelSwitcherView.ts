@@ -12,7 +12,7 @@ import {
 	SERVICE_TOOLS,
 	type CybriaServiceKey,
 } from "./servers";
-import { renderTerminalLine } from "./terminal-ansi";
+import { renderTerminalLine, shouldSkipTerminalLine } from "./terminal-ansi";
 import type { CoreViewTab } from "./settings";
 
 export const VIEW_TYPE_MODEL_SWITCHER = "cybria-model-switcher";
@@ -282,8 +282,10 @@ export class ModelSwitcherView extends ItemView {
 		if (!this.terminalEl) return;
 		const lines = this.plugin.api.log.getLines();
 		while (this.terminalRendered < lines.length) {
-			renderTerminalLine(this.terminalEl, lines[this.terminalRendered]!);
+			const line = lines[this.terminalRendered]!;
 			this.terminalRendered++;
+			if (shouldSkipTerminalLine(line)) continue;
+			renderTerminalLine(this.terminalEl, line);
 		}
 		this.terminalEl.scrollTop = this.terminalEl.scrollHeight;
 	}
@@ -309,7 +311,7 @@ export class ModelSwitcherView extends ItemView {
 		gwHead.createSpan({ text: ` :${CYBRIA_PORT}`, cls: "ccore-server-port" });
 		gw.createDiv({
 			cls: "ccore-server-desc",
-			text: "Launch starts one gateway process that proxies LLM, Summarize, TTS, and Image services.",
+			text: "Launch starts the gateway only. Use Start on each service card to run LLM, Summarize, TTS, or Image.",
 		});
 
 		const gwStatusRow = gw.createDiv("ccore-server-status-row");
@@ -489,28 +491,56 @@ export class ModelSwitcherView extends ItemView {
 		return this.plugin.settings.activeModels[SERVICE_SLOT[service]];
 	}
 
+	private async ensureGatewayRunning(): Promise<void> {
+		if (this.plugin.api.isGatewayRunning()) return;
+		if (await this.plugin.api.fetchGatewayHealth()) {
+			this.log(`[start] using gateway already running on :${CYBRIA_PORT}`);
+			return;
+		}
+		this.log(`[start] gateway not running — launching on :${CYBRIA_PORT}`);
+		this.plugin.api
+			.runner()
+			.launchServer(this.plugin.api.resolveToolsDir("gateway"), (l) => this.log(l));
+		const deadline = Date.now() + 30_000;
+		while (Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 1000));
+			if (await this.plugin.api.fetchGatewayHealth()) {
+				this.log(`[start] gateway is up`);
+				return;
+			}
+		}
+		throw new Error("gateway did not come up within 30s — check logs above");
+	}
+
 	private async startService(service: CybriaServiceKey): Promise<void> {
 		const slot = SERVICE_SLOT[service];
 		const modelId = this.selectedModelId(service);
 		this.plugin.settings.activeModels[slot] = modelId;
 		void this.plugin.saveSettings();
 
-		this.log(`# start service ${service} with ${modelId}`);
-		if (!this.plugin.api.isGatewayRunning()) {
-			new Notice("Launch gateway first");
-			return;
-		}
+		this.log(`# start ${SERVICE_LABELS[service]} with ${modelId}`);
 		this.setStatusText(`Starting ${SERVICE_LABELS[service]}…`, "loading");
 		try {
-			const ok = await this.plugin.api.startService(service);
-			if (!ok) {
-				new Notice(`${SERVICE_LABELS[service]} process failed to start`);
+			await this.ensureGatewayRunning();
+
+			this.log(`[start] requesting ${service} process…`);
+			const res = await this.plugin.api.startService(service);
+			if (!res.ok) {
+				this.log(`[start] ${service} failed to start: ${res.error ?? "unknown error"}`);
+				new Notice(`${SERVICE_LABELS[service]} failed: ${res.error ?? "unknown"}`);
 				return;
 			}
-			await this.plugin.api.switcher.activate(slot, modelId, { ensureServer: false });
+			this.log(`[start] ${service} process healthy — loading ${modelId}`);
+			await this.plugin.api.switcher.activate(slot, modelId, {
+				ensureServer: false,
+				onLog: (l) => this.log(l),
+			});
+			this.log(`[start] ${SERVICE_LABELS[service]} ready with ${modelId}`);
 			new Notice(`${SERVICE_LABELS[service]} started with ${modelId}`);
 		} catch (e) {
-			new Notice(`Start failed: ${e instanceof Error ? e.message : e}`);
+			const msg = e instanceof Error ? e.message : String(e);
+			this.log(`[start] failed: ${msg}`);
+			new Notice(`Start failed: ${msg}`);
 		} finally {
 			await this.refreshServerStatuses();
 			void this.refresh();
@@ -547,7 +577,6 @@ export class ModelSwitcherView extends ItemView {
 				void this.refreshServerStatuses();
 				this.dashboardPane?.render();
 				this.updateGatewayHeader();
-				void this.refresh();
 			}, 2000);
 		} catch (e) {
 			this.log(`[gateway] launch failed: ${e instanceof Error ? e.message : e}`);

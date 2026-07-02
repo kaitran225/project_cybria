@@ -143,14 +143,14 @@ export class CybriaCoreApi {
 		}
 	}
 
-	async startService(service: CybriaServiceKey): Promise<boolean> {
+	async startService(service: CybriaServiceKey): Promise<{ ok: boolean; error?: string }> {
 		try {
 			const res = await fetch(`${this.baseUrl()}/services/${service}/start`, { method: "POST" });
-			if (!res.ok) return false;
-			const body = (await res.json()) as { ok?: boolean };
-			return !!body.ok;
-		} catch {
-			return false;
+			const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
+			if (!res.ok) return { ok: false, error: body.error ?? body.detail ?? `HTTP ${res.status}` };
+			return { ok: !!body.ok, error: body.error };
+		} catch (e) {
+			return { ok: false, error: e instanceof Error ? e.message : String(e) };
 		}
 	}
 

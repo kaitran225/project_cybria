@@ -19,6 +19,20 @@ export class ImageClient {
 
 	async ping(baseUrl = this.defaultUrl): Promise<ImageHealth> {
 		const res = await fetch(`${apiBase(baseUrl)}/health`);
+		if (res.status === 503 || res.status === 504) {
+			try {
+				const body = (await res.json()) as ImageHealth & { detail?: string };
+				return {
+					ready: false,
+					loading: body.loading ?? true,
+					model_id: body.model_id,
+					model_name: body.model_name,
+					error: body.error ?? body.detail ?? null,
+				};
+			} catch {
+				return { ready: false, loading: true };
+			}
+		}
 		if (!res.ok) throw new Error(`Image server not reachable (${res.status})`);
 		return (await res.json()) as ImageHealth;
 	}

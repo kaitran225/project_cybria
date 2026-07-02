@@ -48,23 +48,34 @@ class LineBuffer {
 	}
 }
 
-/** Attach stdout+stderr of a process to a log sink, labeling stderr. */
+/** Attach stdout+stderr of a process to a log sink. Uvicorn INFO on stderr is not an error. */
 function pipeProcess(
 	proc: import("child_process").ChildProcess,
 	onLine: (line: string) => void,
 	label: string
 ): void {
-	const out = new LineBuffer(onLine);
-	const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+	const tag = label === "gateway" ? "gateway" : label;
+	const emit = (line: string, asError = false): void => {
+		const t = line.trim();
+		if (!t) return;
+		if (/^\[[\w-]+\]/.test(t)) {
+			onLine(asError && !/^(INFO|WARNING):/i.test(t) ? `⟨err⟩ ${t}` : t);
+			return;
+		}
+		const tagged = `[${tag}] ${t}`;
+		onLine(asError && !/^(INFO|WARNING):/i.test(t) ? `⟨err⟩ ${tagged}` : tagged);
+	};
+	const out = new LineBuffer((l) => emit(l));
+	const err = new LineBuffer((l) => emit(l, true));
 	proc.stdout?.setEncoding("utf-8");
 	proc.stderr?.setEncoding("utf-8");
 	proc.stdout?.on("data", (c: string) => out.push(c));
 	proc.stderr?.on("data", (c: string) => err.push(c));
-	proc.on("error", (e) => onLine(`[${label}] spawn error: ${e.message}`));
+	proc.on("error", (e) => onLine(`[${tag}] spawn error: ${e.message}`));
 	proc.on("close", (code, signal) => {
 		out.flush();
 		err.flush();
-		onLine(`[${label}] exited (code ${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
+		onLine(`[${tag}] exited (code ${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
 	});
 }
 
@@ -120,7 +131,7 @@ export class CybriaServerRunner {
 			PYTHONUNBUFFERED: "1",
 			PYTHONIOENCODING: "utf-8",
 			FORCE_COLOR: "1",
-			HF_HUB_ENABLE_HF_TRANSFER: "1",
+			HF_XET_HIGH_PERFORMANCE: "1",
 		};
 	}
 
@@ -141,7 +152,10 @@ export class CybriaServerRunner {
 			const proc = spawn(cmd, args, { cwd, windowsHide: true, env });
 			onLine(`  pid: ${proc.pid ?? "(failed to spawn)"}`);
 			const out = new LineBuffer(onLine);
-			const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+			const err = new LineBuffer((l) => {
+				if (/^(INFO|WARNING):/i.test(l)) onLine(l);
+				else onLine(`⟨err⟩ ${l}`);
+			});
 			proc.stdout?.setEncoding("utf-8");
 			proc.stderr?.setEncoding("utf-8");
 			proc.stdout?.on("data", (c: string) => out.push(c));
@@ -186,7 +200,10 @@ export class CybriaServerRunner {
 				onLine(l);
 				stdout += l + "\n";
 			});
-			const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+			const err = new LineBuffer((l) => {
+				if (/^(INFO|WARNING):/i.test(l)) onLine(l);
+				else onLine(`⟨err⟩ ${l}`);
+			});
 			proc.stdout?.setEncoding("utf-8");
 			proc.stderr?.setEncoding("utf-8");
 			proc.stdout?.on("data", (c: string) => out.push(c));
@@ -286,6 +303,7 @@ export const GATEWAY_ENV: ServerEnvExtra = () => ({
 	QWEN_IMAGE_MAX_SIDE: "512",
 	QWEN_IMAGE_LIGHTNING: "1",
 	QWEN_IMAGE_COMPILE: "0",
+	QWEN_IMAGE_WARMUP: "0",
 });
 
 /** @deprecated Gateway passes image env to subprocess */

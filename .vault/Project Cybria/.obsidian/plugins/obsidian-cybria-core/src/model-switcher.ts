@@ -137,7 +137,7 @@ export class ModelSwitcher {
 		timeoutMs = 300_000
 	): Promise<void> {
 		const url = this.serverUrl(service);
-		const deadline = Date.now() + timeoutMs;
+		const deadline = Date.now() + (service === "image" ? 900_000 : timeoutMs);
 		while (Date.now() < deadline) {
 			try {
 				if (service === "llm") {
@@ -154,10 +154,19 @@ export class ModelSwitcher {
 				} else if (service === "image") {
 					const h = await this.api.image.ping(url);
 					if (h.ready && h.model_id === modelId) return;
+					if (h.loading && h.model_id === modelId) {
+						await new Promise((r) => setTimeout(r, 2000));
+						continue;
+					}
 					if (h.error && !h.loading) throw new Error(h.error);
 				}
 			} catch (e) {
-				if (e instanceof Error && !/not reachable|fetch/i.test(e.message)) throw e;
+				const msg = e instanceof Error ? e.message : String(e);
+				if (/not reachable|fetch|503|504|connection|timed out/i.test(msg)) {
+					await new Promise((r) => setTimeout(r, 2000));
+					continue;
+				}
+				throw e;
 			}
 			await new Promise((r) => setTimeout(r, 1500));
 		}
@@ -197,13 +206,17 @@ export class ModelSwitcher {
 			}
 
 			if (!this.api.isGatewayRunning()) {
-				if (opts?.ensureServer === false) {
+				const reachable = await this.api.fetchGatewayHealth();
+				if (reachable) {
+					log(`[switcher] using gateway already answering on :${CYBRIA_PORT}`);
+				} else if (opts?.ensureServer === false) {
 					throw new Error(`Cybria server not running — launch gateway first`);
+				} else {
+					log(`[switcher] launching cybria-server on :${CYBRIA_PORT}`);
+					const toolsDir = this.api.resolveToolsDir("gateway");
+					this.api.runner().launchServer(toolsDir, log);
+					await new Promise((r) => setTimeout(r, 3000));
 				}
-				log(`[switcher] launching cybria-server on :${CYBRIA_PORT}`);
-				const toolsDir = this.api.resolveToolsDir("gateway");
-				this.api.runner().launchServer(toolsDir, log);
-				await new Promise((r) => setTimeout(r, 3000));
 			}
 
 			this.patch(slot, { serverRunning: true });
@@ -227,62 +240,61 @@ export class ModelSwitcher {
 		}
 	}
 
-	/** Refresh health for all slots from running servers. */
+	/** Refresh health for all slots from the gateway /health snapshot (no per-service proxy pings). */
 	async refresh(): Promise<void> {
+		const localProc = this.api.isGatewayRunning();
+		const health = localProc ? await this.api.fetchGatewayHealth() : null;
+		const gatewayUp = !!(localProc || health);
+
 		for (const slot of this.listSlots()) {
 			const service = serverForSlot(slot);
-			const running = this.api.isGatewayRunning();
 			this.patch(slot, {
-				serverRunning: running,
+				serverRunning: gatewayUp,
 				activeModelId: this.getActive()[slot],
 			});
-			if (!running) {
-				this.patch(slot, { status: "idle", loadedModelId: null });
+			if (!health) {
+				this.patch(slot, { status: "idle", loadedModelId: null, error: null });
 				continue;
 			}
-			try {
-				const url = this.serverUrl(service);
-				let loaded: string | null = null;
-				let ready = false;
-				if (service === "llm") {
-					const h = await this.api.llm.ping(url);
-					loaded = h.model_id ?? null;
-					ready = !!h.ready;
-					this.patch(slot, {
-						loadedModelId: loaded,
-						status: h.loading ? "loading" : ready ? "ready" : "idle",
-						error: h.error ?? null,
-					});
-				} else if (service === "summarize") {
-					const h = await this.api.summarize.ping(url);
-					ready = !!h.ready;
-					this.patch(slot, {
-						status: ready ? "ready" : "idle",
-						loadedModelId: this.getActive()[slot],
-						error: h.error ?? null,
-					});
-				} else if (service === "tts") {
-					const h = await this.api.tts.ping(url);
-					ready = !!h.ready;
-					loaded = h.model_id ?? this.getActive()[slot];
-					this.patch(slot, {
-						loadedModelId: loaded,
-						status: ready ? "ready" : "idle",
-						error: h.error ?? null,
-					});
-				} else if (service === "image") {
-					const h = await this.api.image.ping(url);
-					loaded = h.model_id ?? null;
-					ready = !!h.ready;
-					this.patch(slot, {
-						loadedModelId: loaded,
-						status: h.loading ? "loading" : ready ? "ready" : "idle",
-						error: h.error ?? null,
-					});
-				}
-			} catch {
-				this.patch(slot, { status: "idle", serverRunning: running });
-			}
+			this.applyGatewayHealth(slot, service, health.services?.[service]);
 		}
+	}
+
+	private applyGatewayHealth(
+		slot: ModelSlot,
+		_service: CybriaServiceKey,
+		raw: Record<string, unknown> | undefined
+	): void {
+		if (!raw || raw.stopped) {
+			this.patch(slot, { status: "idle", loadedModelId: null, error: null });
+			return;
+		}
+		const loaded =
+			typeof raw.model_id === "string"
+				? raw.model_id
+				: typeof raw.model_name === "string"
+					? raw.model_name
+					: null;
+		if (raw.loading) {
+			this.patch(slot, {
+				status: "loading",
+				loadedModelId: loaded,
+				error: typeof raw.error === "string" ? raw.error : null,
+			});
+			return;
+		}
+		if (raw.ready) {
+			this.patch(slot, {
+				status: "ready",
+				loadedModelId: loaded ?? this.getActive()[slot],
+				error: null,
+			});
+			return;
+		}
+		if (typeof raw.error === "string" && raw.error) {
+			this.patch(slot, { status: "error", loadedModelId: loaded, error: raw.error });
+			return;
+		}
+		this.patch(slot, { status: "idle", loadedModelId: loaded, error: null });
 	}
 }

@@ -1,5 +1,7 @@
 /** Parse ANSI SGR sequences and render a terminal line into a parent element. */
 const SGR_RE = /\x1b\[([0-9;]*)m/g;
+const SVC_TAG_RE = /^\[([a-z][\w-]*)\]\s*/i;
+const PROGRESS_RE = /^(Loading|Fetching|\s*\d+%|\s*\|)/i;
 
 const SGR_CLASS: Record<number, string> = {
 	1: "ansi-bold",
@@ -21,18 +23,43 @@ const SGR_CLASS: Record<number, string> = {
 	97: "ansi-fg-bright-white",
 };
 
-function semanticClass(line: string): string {
-	if (line.startsWith("$ ")) return "tlog-cmd";
-	if (line.startsWith("[download]")) {
-		return /error/i.test(line) ? "tlog-err" : "tlog-ok";
+const SERVICE_COLORS: Record<string, string> = {
+	gateway: "tlog-tag-gateway",
+	"cybria-server": "tlog-tag-gateway",
+	llm: "tlog-tag-llm",
+	summarize: "tlog-tag-summarize",
+	tts: "tlog-tag-tts",
+	image: "tlog-tag-image",
+	start: "tlog-tag-action",
+	switcher: "tlog-tag-action",
+};
+
+type LineKind = "cmd" | "meta" | "info" | "ok" | "warn" | "err" | "stderr-info" | "progress" | "comment" | "";
+
+function stripAnsi(text: string): string {
+	return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function classifyLine(raw: string, isStderr: boolean): LineKind {
+	const line = stripAnsi(raw);
+	if (line.startsWith("# ")) return "comment";
+	if (line.startsWith("$ ")) return "cmd";
+	if (line.startsWith("  cwd:") || line.startsWith("  pid:")) return "meta";
+	if (line.startsWith("[exit ")) return line.startsWith("[exit 0]") ? "ok" : "err";
+	if (line.startsWith("[download]")) return /error/i.test(line) ? "err" : "ok";
+	if (/\[generate\]/.test(line)) return "info";
+	if (PROGRESS_RE.test(line) || line.includes("[A") || line.includes("it/s]")) return "progress";
+	if (isStderr) {
+		if (/^INFO:/i.test(line)) return "stderr-info";
+		if (/^WARNING:|UserWarning|FutureWarning|DeprecationWarning/i.test(line)) return "warn";
+		if (/^ERROR:|Traceback|Exception|FileNotFoundError/i.test(line)) return "err";
+		return "stderr-info";
 	}
-	if (line.startsWith("[exit ")) {
-		return line.startsWith("[exit 0]") ? "tlog-ok" : "tlog-err";
-	}
-	if (/UserWarning|warning:/i.test(line)) return "tlog-warn";
-	if (/error|failed|traceback|exception/i.test(line)) return "tlog-err";
-	if (line.startsWith("[cybria-server]") || line.startsWith("[switcher]")) return "tlog-info";
-	if (/\b(ready|running|saved|complete|ok)\b/i.test(line)) return "tlog-ok";
+	if (line.startsWith("[cybria-server]") || line.startsWith("[switcher]") || line.startsWith("[start]"))
+		return "info";
+	if (/error|failed|traceback|exception/i.test(line)) return "err";
+	if (/UserWarning|warning:/i.test(line)) return "warn";
+	if (/\b(ready|running|saved|complete|Successfully installed)\b/i.test(line)) return "ok";
 	return "";
 }
 
@@ -51,16 +78,11 @@ function appendSpan(parent: HTMLElement, text: string, classes: Set<string>): vo
 	for (const cls of classes) span.addClass(cls);
 }
 
-export function renderTerminalLine(parent: HTMLElement, line: string): void {
-	const row = parent.createDiv({ cls: "ccore-terminal-line" });
-	const semantic = semanticClass(line);
-	if (semantic) row.addClass(semantic);
-
+function appendBody(row: HTMLElement, line: string): void {
 	if (!line.includes("\x1b[")) {
-		row.setText(line);
+		row.createSpan({ text: line, cls: "tlog-body" });
 		return;
 	}
-
 	const classes = new Set<string>();
 	let last = 0;
 	let match: RegExpExecArray | null;
@@ -73,4 +95,39 @@ export function renderTerminalLine(parent: HTMLElement, line: string): void {
 		last = match.index + match[0].length;
 	}
 	appendSpan(row, line.slice(last), classes);
+}
+
+const ACCESS_LOG_RE = /^INFO:\s+[\d.:]+\s+-\s+"(?:GET|POST|PUT|DELETE|PATCH|OPTIONS)\s+/i;
+
+/** Drop uvicorn per-request access lines, especially /health polling. */
+export function shouldSkipTerminalLine(line: string): boolean {
+	let body = line.startsWith("⟨err⟩ ") ? line.slice(6) : line;
+	body = body.replace(/^\[[\w-]+\]\s*/, "");
+	if (ACCESS_LOG_RE.test(body)) return true;
+	if (/\/health\b/i.test(body) && /\b(?:GET|POST)\b/i.test(body)) return true;
+	return false;
+}
+
+export function renderTerminalLine(parent: HTMLElement, line: string): void {
+	let isStderr = false;
+	if (line.startsWith("⟨err⟩ ")) {
+		isStderr = true;
+		line = line.slice(6);
+	}
+
+	const kind = classifyLine(line, isStderr);
+	const row = parent.createDiv({ cls: "ccore-terminal-line" });
+	if (kind) row.addClass(`tlog-${kind}`);
+
+	let body = line;
+	const svcMatch = body.match(SVC_TAG_RE);
+	if (svcMatch) {
+		const svc = svcMatch[1].toLowerCase();
+		const tagKey = svc === "cybria-server" ? "gateway" : svc;
+		const tag = row.createSpan({ cls: "tlog-tag", text: tagKey });
+		tag.addClass(SERVICE_COLORS[tagKey] ?? SERVICE_COLORS[svc] ?? "tlog-tag-default");
+		body = body.slice(svcMatch[0].length);
+	}
+
+	appendBody(row, body);
 }
