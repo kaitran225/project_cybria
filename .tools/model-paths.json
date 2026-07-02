@@ -1,0 +1,8 @@
+{
+  "root": "G:\\.models",
+  "loras": "G:\\.models\\LoRa",
+  "huggingface": "G:\\.models\\Qwen",
+  "llm": "G:\\.models\\llm",
+  "tts": "G:\\.models\\tts",
+  "summarization": "G:\\.models\\summarization"
+}

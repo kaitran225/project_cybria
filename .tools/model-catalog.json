@@ -1,0 +1,175 @@
+{
+  "hardware_note": "Profiled for RTX 4060 8GB. runnable_local values: yes | tight | marginal | no",
+  "glm_5_2": {
+    "full_repo": "zai-org/GLM-5.2",
+    "runnable_on_8gb_vram": false,
+    "reason": "754B MoE; smallest GGUF quant needs ~223GB total RAM (Unsloth UD-IQ1_S). Not practical on 8GB GPU alone.",
+    "gguf_options": [
+      {
+        "repo": "unsloth/GLM-5.2-GGUF",
+        "quant": "UD-IQ2_M",
+        "size_gb": 239,
+        "min_ram_gb": 245
+      },
+      {
+        "repo": "sunshaohui/GLM-5.2-GGUF",
+        "quant": "UD-IQ1_S",
+        "size_gb": 217,
+        "min_ram_gb": 223
+      }
+    ],
+    "alternatives_on_8gb": [
+      "deepreinforce-ai/Ornith-1.0-9B (GGUF Q4_K_M via cybria-llm)",
+      "yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF (Q4_K_M via cybria-llm)",
+      "Use Z.ai API for cloud GLM-5.2"
+    ]
+  },
+  "models": [
+    {
+      "id": "qwen-lightning",
+      "name": "Qwen Image (Lightning)",
+      "repo_id": "unsloth/Qwen-Image-2512-unsloth-bnb-4bit",
+      "category": "image_generate",
+      "runtime": "diffusers",
+      "storage_key": "huggingface",
+      "runnable_local": "yes",
+      "integrated": "qwen-image-server",
+      "note": "Already in Image Gen server"
+    },
+    {
+      "id": "heartsync-nsfw",
+      "name": "Heartsync NSFW Uncensored",
+      "repo_id": "Heartsync/NSFW-Uncensored",
+      "category": "image_generate",
+      "runtime": "diffusers",
+      "storage_key": "huggingface",
+      "runnable_local": "yes",
+      "integrated": "qwen-image-server",
+      "note": "SDXL — already in Image Gen server"
+    },
+    {
+      "id": "qwen-image-edit-2511",
+      "name": "Qwen Image Edit 2511",
+      "repo_id": "Qwen/Qwen-Image-Edit-2511",
+      "category": "image_edit",
+      "runtime": "diffusers",
+      "pipeline": "QwenImageEditPlusPipeline",
+      "storage_key": "huggingface",
+      "runnable_local": "marginal",
+      "min_vram_gb": 8,
+      "integrated": "catalog_only",
+      "pull": "hf download Qwen/Qwen-Image-Edit-2511 --local-dir G:/.models/Qwen",
+      "note": "Image-to-image / edit. Needs recent diffusers + CPU offload on 8GB. Not wired into plugin yet.",
+      "url": "https://huggingface.co/Qwen/Qwen-Image-Edit-2511"
+    },
+    {
+      "id": "higgs-tts-3-4b",
+      "name": "Higgs TTS 3 4B",
+      "repo_id": "bosonai/higgs-tts-3-4b",
+      "category": "tts",
+      "runtime": "vllm-omni",
+      "storage_key": "tts",
+      "runnable_local": "tight",
+      "min_vram_gb": 6,
+      "integrated": "cybria-tts",
+      "pull": "hf download bosonai/higgs-tts-3-4b --local-dir G:/.models/tts/higgs-tts-3-4b",
+      "serve": "cybria-tts :8792 (vllm-omni; pip install vllm-omni in .tools/cybria-tts/.venv)",
+      "note": "~5B speech model. Research/non-commercial license.",
+      "url": "https://huggingface.co/bosonai/higgs-tts-3-4b"
+    },
+    {
+      "id": "gemma-4-12b-agentic-gguf",
+      "name": "Gemma 4 12B Agentic (GGUF)",
+      "repo_id": "yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF",
+      "category": "llm",
+      "runtime": "llama-cpp",
+      "storage_key": "llm",
+      "runnable_local": "yes",
+      "recommended_quant": "Q4_K_M",
+      "size_gb": 7.5,
+      "integrated": "cybria-llm",
+      "pull": "python .tools/cybria-llm/download.py gemma-4-12b-agentic-gguf",
+      "serve": "http://127.0.0.1:8790",
+      "note": "Agentic coding / tool use. Good fit for 8GB with Q4.",
+      "url": "https://huggingface.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF"
+    },
+    {
+      "id": "ornith-1.0-9b",
+      "name": "Ornith 1.0 9B",
+      "repo_id": "deepreinforce-ai/Ornith-1.0-9B-GGUF",
+      "category": "llm",
+      "runtime": "llama-cpp",
+      "storage_key": "llm",
+      "runnable_local": "yes",
+      "recommended_quant": "GGUF Q4_K_M",
+      "size_gb": 7,
+      "integrated": "cybria-llm",
+      "pull": "python .tools/cybria-llm/download.py ornith-1.0-9b",
+      "serve": "http://127.0.0.1:8790",
+      "note": "Agentic coding. Use GGUF for 8GB; full bf16 needs ~19GB.",
+      "url": "https://huggingface.co/deepreinforce-ai/Ornith-1.0-9B"
+    },
+    {
+      "id": "wanabi-novelist-12b",
+      "name": "Wanabi Novelist 12B",
+      "repo_id": "mradermacher/Wanabi-Novelist-12B-i1-GGUF",
+      "category": "llm",
+      "runtime": "llama-cpp",
+      "storage_key": "llm",
+      "runnable_local": "yes",
+      "recommended_quant": "Q4_K_M",
+      "size_gb": 7.6,
+      "integrated": "cybria-llm",
+      "pull": "python .tools/cybria-llm/download.py wanabi-novelist-12b",
+      "serve": "http://127.0.0.1:8790",
+      "note": "Japanese novel writing.",
+      "url": "https://huggingface.co/mradermacher/Wanabi-Novelist-12B-i1-GGUF"
+    },
+    {
+      "id": "nqlsg-qwen3-14b-novel",
+      "name": "NQLSG Qwen3 14B NovelFusion",
+      "repo_id": "mradermacher/NQLSG-Qwen3-14B-NovelFusion-Base-i1-GGUF",
+      "category": "llm",
+      "runtime": "llama-cpp",
+      "storage_key": "llm",
+      "runnable_local": "tight",
+      "recommended_quant": "Q4_K_M",
+      "size_gb": 9.1,
+      "integrated": "cybria-llm",
+      "pull": "python .tools/cybria-llm/download.py nqlsg-qwen3-14b-novel",
+      "serve": "http://127.0.0.1:8790",
+      "note": "14B novel model. Q4_K_M may need most of 8GB; try Q3_K_M if OOM.",
+      "url": "https://huggingface.co/mradermacher/NQLSG-Qwen3-14B-NovelFusion-Base-i1-GGUF"
+    },
+    {
+      "id": "pegasus-xsum",
+      "name": "PEGASUS XSum",
+      "repo_id": "google/pegasus-xsum",
+      "category": "summarization",
+      "runtime": "transformers",
+      "storage_key": "summarization",
+      "runnable_local": "yes",
+      "size_gb": 2.3,
+      "integrated": "cybria-summarize",
+      "pull": "POST http://127.0.0.1:8791/download {\"model_id\":\"pegasus-xsum\"}",
+      "serve": "http://127.0.0.1:8791",
+      "note": "Abstractive summarization (XSum style). Runs on CPU or GPU easily.",
+      "url": "https://huggingface.co/google/pegasus-xsum"
+    },
+    {
+      "id": "bart-large-cnn",
+      "name": "BART Large CNN",
+      "repo_id": "facebook/bart-large-cnn",
+      "category": "summarization",
+      "runtime": "transformers",
+      "storage_key": "summarization",
+      "runnable_local": "yes",
+      "size_gb": 1.6,
+      "integrated": "cybria-summarize",
+      "pull": "POST http://127.0.0.1:8791/download {\"model_id\":\"bart-large-cnn\"}",
+      "serve": "http://127.0.0.1:8791",
+      "note": "News-style summarization. Lightweight on 8GB.",
+      "url": "https://huggingface.co/facebook/bart-large-cnn"
+    }
+  ]
+}

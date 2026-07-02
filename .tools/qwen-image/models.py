@@ -45,7 +45,7 @@ def model_catalog() -> list[ModelSpec]:
         ),
         ModelSpec(
             id="heartsync-nsfw",
-            name="NSFW Uncensored (SDXL)",
+            name="Heartsync NSFW Uncensored",
             repo_id="Heartsync/NSFW-Uncensored",
             family="sdxl",
             lightning=False,

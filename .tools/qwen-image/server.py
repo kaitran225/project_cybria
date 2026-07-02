@@ -12,6 +12,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from model_paths import apply_huggingface_env, ensure_model_dirs
+
+ensure_model_dirs()
+apply_huggingface_env()
+
 import torch
 import uvicorn
 from diffusers import DiffusionPipeline, StableDiffusionXLPipeline
@@ -82,6 +87,12 @@ class GenerateBody(BaseModel):
     negativePrompt: str = " "
     lora: str | None = None
     loraScale: float = DEFAULT_LORA_SCALE
+
+    model_config = {"populate_by_name": True}
+
+
+class LoadModelBody(BaseModel):
+    model_id: str = Field(alias="model_id")
 
     model_config = {"populate_by_name": True}
 
@@ -429,6 +440,28 @@ def list_models() -> dict[str, Any]:
         "default": DEFAULT_MODEL_ID,
         "loaded": loaded,
     }
+
+
+@app.post("/models/load")
+def load_model_endpoint(body: LoadModelBody) -> dict[str, Any]:
+    model_id = body.model_id.strip()
+    if not model_id:
+        raise HTTPException(status_code=400, detail="model_id required")
+    try:
+        get_model(model_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    def _run() -> None:
+        try:
+            _load_pipeline(model_id)
+        except Exception as exc:
+            _log(f"[load] model switch failed: {exc}")
+
+    if _loading:
+        return {"ok": True, "model_id": model_id, "loading": True}
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "model_id": model_id, "loading": True}
 
 
 @app.get("/loras")

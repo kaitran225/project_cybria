@@ -8,8 +8,7 @@ from pathlib import Path
 
 from safetensors import safe_open
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_LORA_DIR = _REPO_ROOT / "safetensor"
+from model_paths import lora_dir
 
 QWEN_LORA_PREFIX = "lora_unet_transformer"
 
@@ -59,7 +58,7 @@ class LoraEntry:
 
 def resolve_lora_dir(override: str | None = None) -> Path:
     raw = (override or os.environ.get("QWEN_LORA_DIR", "")).strip()
-    return Path(raw) if raw else DEFAULT_LORA_DIR
+    return Path(raw) if raw else lora_dir()
 
 
 def _label_from_filename(filename: str) -> str:
@@ -108,7 +107,7 @@ def scan_loras(directory: Path | None = None) -> list[LoraEntry]:
         return []
 
     entries: list[LoraEntry] = []
-    for path in sorted(root.glob("*.safetensors")):
+    for path in sorted(root.rglob("*.safetensors")):
         kind, reason = _classify_file(path)
         entries.append(
             LoraEntry(

@@ -1,0 +1,9 @@
+{
+	"id": "cybria-core",
+	"name": "Cybria Core",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Shared runtime for Cybria plugins — model paths, server launchers, and API clients.",
+	"author": "Project Cybria",
+	"isDesktopOnly": true
+}

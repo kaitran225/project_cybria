@@ -3,7 +3,6 @@
   "dataview",
   "obsidian-tasks-plugin",
   "tasks-map",
-  "local-llm-hub",
   "reason",
   "color-palette",
   "ai-agent",
@@ -11,5 +10,9 @@
   "creases",
   "people-graph",
   "storyteller-suite",
-  "image-gen"
+  "cybria-core",
+  "image-gen",
+  "cybria-llm",
+  "cybria-novel",
+  "cybria-audio"
 ]

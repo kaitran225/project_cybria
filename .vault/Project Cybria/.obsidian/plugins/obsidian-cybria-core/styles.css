@@ -1,0 +1,133 @@
+.ccore-root {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: 8px;
+	gap: 10px;
+	overflow-y: auto;
+}
+
+.ccore-hint {
+	font-size: 12px;
+	color: var(--text-muted);
+	margin: 0;
+	line-height: 1.4;
+}
+
+.ccore-status {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.ccore-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.ccore-slots {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.ccore-slot {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	padding: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ccore-slot-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+}
+
+.ccore-slot-title {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.ccore-slot-badge {
+	font-size: 11px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--background-modifier-hover);
+}
+
+.ccore-badge-ready {
+	background: var(--color-green);
+	color: var(--text-on-accent);
+}
+
+.ccore-badge-loading {
+	background: var(--color-yellow);
+}
+
+.ccore-badge-error {
+	background: var(--color-red);
+	color: var(--text-on-accent);
+}
+
+.ccore-slot-note {
+	font-size: 11px;
+	color: var(--text-muted);
+}
+
+.ccore-pills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.ccore-pill {
+	padding: 4px 10px;
+	border-radius: 999px;
+	font-size: 12px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	cursor: pointer;
+}
+
+.ccore-pill.is-active {
+	border-color: var(--interactive-accent);
+	background: var(--background-modifier-active-hover);
+}
+
+.ccore-pill.is-tight {
+	border-style: dashed;
+}
+
+.ccore-slot-actions {
+	font-size: 11px;
+}
+
+.ccore-meta-ok {
+	color: var(--color-green);
+}
+
+.ccore-meta-off {
+	color: var(--text-muted);
+}
+
+.ccore-terminal {
+	flex: 1;
+	min-height: 100px;
+	max-height: 180px;
+	overflow-y: auto;
+	font-family: var(--font-monospace);
+	font-size: 11px;
+	background: var(--background-primary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 6px;
+}
+
+.ccore-terminal-line {
+	white-space: pre-wrap;
+	word-break: break-all;
+}

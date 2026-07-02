@@ -1,11 +1,8 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { fetchLoras, fetchModels, pingServer } from "./client";
-import {
-	ImageServerRunner,
-	type ReqCheckResult,
-} from "./server-launcher";
+import type { ReqCheckResult } from "./require-core";
 import { LORA_NONE, type LoraInfo } from "./loras";
-import { type ModelInfo } from "./models";
+import { modelsForPicker, modelSupportsLora, type ModelInfo } from "./models";
 import {
 	ASPECT_PRESETS,
 	detectAspect,
@@ -31,7 +28,6 @@ export class ImageGenView extends ItemView {
 	private statusBarEl!: HTMLElement;
 	private statusTextEl!: HTMLElement;
 	private serverDetailsEl!: HTMLDetailsElement;
-	private genServerPill!: HTMLElement;
 	private previewEl!: HTMLElement;
 	private galleryEl!: HTMLElement;
 	private galleryCardEl!: HTMLElement;
@@ -44,7 +40,6 @@ export class ImageGenView extends ItemView {
 	private modelEl!: HTMLElement;
 	private reqEl!: HTMLElement;
 	private genParamsEl!: HTMLElement;
-	private paramsSummaryEl!: HTMLElement;
 	private aspectEl!: HTMLElement;
 	private widthInput!: HTMLInputElement;
 	private heightInput!: HTMLInputElement;
@@ -55,7 +50,6 @@ export class ImageGenView extends ItemView {
 	private loraScaleWrap!: HTMLElement;
 	private negativeInput!: HTMLTextAreaElement;
 	private modelPickerEl!: HTMLElement;
-	private modelHintEl!: HTMLElement;
 	private modelCatalog: ModelInfo[] = [];
 	private loraSectionEl!: HTMLElement;
 	private loraEl!: HTMLElement;
@@ -95,29 +89,10 @@ export class ImageGenView extends ItemView {
 		const scroll = host.createDiv({ cls: "ig-scroll" });
 		this.scrollEl = scroll;
 
-		// --- Material app bar (sticky) ---
-		const appbar = scroll.createDiv({ cls: "ig-appbar" });
-		const brand = appbar.createDiv({ cls: "ig-appbar-brand" });
-		const brandIcon = brand.createSpan({ cls: "ig-appbar-icon" });
-		setIcon(brandIcon, "image");
-		brand.createSpan({ cls: "ig-appbar-title", text: "Image Studio" });
-		this.genServerPill = appbar.createDiv({ cls: "ig-status-pill is-clickable" });
-		this.genServerPill.setAttr("title", "Jump to server controls");
-		this.genServerPill.createDiv({ cls: "ig-pill-dot" });
-		this.genServerPill.createSpan({ text: "Checking…" });
-		this.genServerPill.onclick = () => this.switchTab("server");
-
-		this.paramsSummaryEl = scroll.createDiv({ cls: "ig-summary" });
-
 		// --- Output (header-less hero preview) ---
 		const outputEl = scroll.createDiv({ cls: "ig-output" });
 		this.previewEl = outputEl.createDiv({ cls: "image-gen-preview is-empty" });
 		this.previewEl.setText("Your latest image will appear here");
-
-		// --- Gallery card ---
-		const galleryBody = this.makeCard(scroll, "Gallery", "images", false, "ig-gallery-card is-hidden");
-		this.galleryCardEl = galleryBody.closest("details") as HTMLElement;
-		this.galleryEl = galleryBody.createDiv({ cls: "image-gen-gallery" });
 
 		// --- Generate card ---
 		const gen = this.makeCard(scroll, "Generate", "sparkles", true);
@@ -158,7 +133,6 @@ export class ImageGenView extends ItemView {
 		const settingsBody = this.makeCard(scroll, "Settings", "sliders-horizontal", true);
 		const modelGroup = this.makeSubgroup(settingsBody, "Model");
 		const modelBody = this.subgroupBody(modelGroup);
-		this.modelHintEl = modelBody.createDiv({ cls: "image-gen-section-hint is-hidden" });
 		this.modelPickerEl = modelBody.createDiv({ cls: "image-gen-model-grid" });
 
 		const sizeGroup = this.makeSubgroup(settingsBody, "Size & quality");
@@ -167,12 +141,19 @@ export class ImageGenView extends ItemView {
 
 		this.loraSectionEl = this.makeSubgroup(
 			settingsBody,
-			"Style",
+			"LoRA",
 			"image-gen-lora-section is-hidden"
 		);
 		const loraBody = this.subgroupBody(this.loraSectionEl);
 		this.loraHintEl = loraBody.createDiv({ cls: "image-gen-section-hint is-hidden" });
 		this.loraEl = loraBody.createDiv({ cls: "image-gen-lora-grid" });
+		const loraScaleRow = loraBody.createDiv({ cls: "image-gen-lora-scale-row" });
+		this.loraScaleInput = this.addNumberField(loraScaleRow, "Strength", (v) => {
+			this.plugin.settings.loraScale = Math.max(0, Math.min(2, v));
+			void this.saveParams();
+		}, true);
+		this.loraScaleWrap = this.loraScaleInput.parentElement as HTMLElement;
+		this.loraScaleWrap.addClass("image-gen-lora-scale-field");
 
 		// --- Server card (no terminal) ---
 		const srvBody = this.makeCard(scroll, "Server", "server", false, "image-gen-server-collapse");
@@ -247,12 +228,14 @@ export class ImageGenView extends ItemView {
 		this.reqEl = infoRow.createDiv({ cls: "image-gen-req" });
 
 		// --- Terminal card ---
-		const termBody = this.makeCard(scroll, "Terminal", "terminal", false);
-		const termToolbar = termBody.createDiv({ cls: "ig-terminal-toolbar" });
-		const clearBtn = termToolbar.createEl("button", {
+		const termBody = this.makeCard(scroll, "Terminal", "terminal", false, "ig-terminal-card");
+		const termHead = termBody.closest("details")?.querySelector(".ig-card-head") as HTMLElement;
+		const chevron = termHead?.querySelector(".ig-card-chevron") ?? null;
+		const clearBtn = termHead.createEl("button", {
 			cls: "image-gen-terminal-clear",
 			text: "Clear",
 		});
+		if (chevron) termHead.insertBefore(clearBtn, chevron);
 		clearBtn.onclick = () => {
 			this.logEl.empty();
 			this.progressShellLine = null;
@@ -260,13 +243,18 @@ export class ImageGenView extends ItemView {
 		this.footerEl = termBody.createDiv({ cls: "image-gen-terminal-wrap" });
 		this.logEl = this.footerEl.createDiv({ cls: "image-gen-terminal" });
 
+		// --- Gallery card (bottom) ---
+		const galleryBody = this.makeCard(scroll, "Gallery", "images", false, "ig-gallery-card is-hidden");
+		this.galleryCardEl = galleryBody.closest("details") as HTMLElement;
+		this.galleryEl = galleryBody.createDiv({ cls: "image-gen-gallery" });
+
 		// --- Init ---
 		this.renderConfigDisplay();
 		this.renderReqStatus(null);
 		this.syncParamsControls();
-		this.updateParamsSummary();
 		this.renderModelPicker();
 		this.updatePromptCount();
+		this.updateLoraSectionVisibility();
 
 		this.appendShell("# server shell — pip / python output");
 		void this.onCheckRequirements(false);
@@ -354,28 +342,30 @@ export class ImageGenView extends ItemView {
 		this.genStatusEl.setText(text);
 	}
 
-	private updateParamsSummary(): void {
-		if (!this.paramsSummaryEl) return;
-		this.paramsSummaryEl.empty();
-		const s = this.plugin.settings;
-		const model = this.modelCatalog.find((m) => m.id === s.modelId);
-		const chips = [
-			model?.name ?? "No model",
-			formatSize(s.width, s.height),
-			`${s.steps} steps`,
-		];
-		if (s.lora) {
-			const lora = this.loraCatalog.find((l) => l.id === s.lora);
-			if (lora) chips.push(lora.name);
+	private currentModelSpec(): ModelInfo | undefined {
+		return this.availableModels().find((m) => m.id === this.activeImageModelId());
+	}
+
+	private updateLoraSectionVisibility(): void {
+		if (!this.loraSectionEl) return;
+		const spec = this.currentModelSpec();
+		const supports = spec ? modelSupportsLora(spec.family) : false;
+		this.loraSectionEl.toggleClass("is-hidden", !supports);
+		if (!supports && this.plugin.settings.lora) {
+			this.plugin.settings.lora = "";
+			void this.plugin.saveSettings();
 		}
-		for (const text of chips) {
-			this.paramsSummaryEl.createSpan({ cls: "image-gen-summary-chip", text });
-		}
+		this.toggleLoraScaleField();
 	}
 
 	private toggleLoraScaleField(): void {
 		if (!this.loraScaleWrap) return;
-		this.loraScaleWrap.toggleClass("is-hidden", !this.plugin.settings.lora);
+		const spec = this.currentModelSpec();
+		const supports = spec ? modelSupportsLora(spec.family) : false;
+		this.loraScaleWrap.toggleClass(
+			"is-hidden",
+			!supports || !this.plugin.settings.lora
+		);
 	}
 
 	appendShell(line: string): void {
@@ -479,9 +469,8 @@ export class ImageGenView extends ItemView {
 	}
 
 	private toolsDir(): string {
-		const base = this.vaultPath();
-		return this.plugin.serverRunner.resolveToolsDir(
-			base,
+		return this.plugin.getCore().resolveToolsDir(
+			"image",
 			this.plugin.settings.qwenToolsPath
 		);
 	}
@@ -491,8 +480,12 @@ export class ImageGenView extends ItemView {
 		this.modelEl.setText(model.split("/").pop() ?? model);
 	}
 
+	private availableModels(): ModelInfo[] {
+		return modelsForPicker(this.modelCatalog);
+	}
+
 	private longEdgeForModel(): number {
-		const spec = this.modelCatalog.find((m) => m.id === this.plugin.settings.modelId);
+		const spec = this.availableModels().find((m) => m.id === this.plugin.settings.modelId);
 		return spec?.default_size ?? Math.max(this.plugin.settings.width, this.plugin.settings.height);
 	}
 
@@ -547,13 +540,6 @@ export class ImageGenView extends ItemView {
 			void this.saveParams();
 		};
 
-		this.loraScaleInput = this.addNumberField(seedRow, "Style strength", (v) => {
-			this.plugin.settings.loraScale = Math.max(0, Math.min(2, v));
-			void this.saveParams();
-		}, true);
-		this.loraScaleWrap = this.loraScaleInput.parentElement as HTMLElement;
-		this.loraScaleWrap.addClass("image-gen-lora-scale-field");
-
 		const adv = this.genParamsEl.createEl("details", { cls: "image-gen-advanced" });
 		adv.createEl("summary", { text: "More options" });
 		const negWrap = adv.createDiv({ cls: "image-gen-param-field" });
@@ -592,7 +578,6 @@ export class ImageGenView extends ItemView {
 
 	private async saveParams(): Promise<void> {
 		this.renderAspectPicker();
-		this.updateParamsSummary();
 		await this.plugin.saveSettings();
 	}
 
@@ -604,23 +589,10 @@ export class ImageGenView extends ItemView {
 		this.stepsInput.value = String(s.steps);
 		this.cfgInput.value = String(s.cfg);
 		this.seedInput.value = s.seed;
-		this.loraScaleInput.value = String(s.loraScale);
+		if (this.loraScaleInput) this.loraScaleInput.value = String(s.loraScale);
 		this.negativeInput.value = s.negativePrompt;
 		this.renderAspectPicker();
 		this.toggleLoraScaleField();
-		this.updateParamsSummary();
-	}
-
-	private updateModelHint(): void {
-		if (!this.modelHintEl) return;
-		const spec = this.modelCatalog.find((m) => m.id === this.plugin.settings.modelId);
-		if (spec?.id === "heartsync-nsfw") {
-			this.modelHintEl.removeClass("is-hidden");
-			this.modelHintEl.setText("First use downloads the model (~6 GB).");
-		} else {
-			this.modelHintEl.addClass("is-hidden");
-			this.modelHintEl.setText("");
-		}
 	}
 
 	renderAspectPicker(): void {
@@ -634,13 +606,13 @@ export class ImageGenView extends ItemView {
 
 		for (const preset of ASPECT_PRESETS) {
 			const { width, height } = sizesForAspect(preset.id, this.longEdgeForModel());
-			const btn = this.aspectEl.createEl("button", { cls: "image-gen-aspect-chip" });
-			const visualWrap = btn.createDiv({ cls: "image-gen-aspect-visual-wrap" });
-			const visual = visualWrap.createDiv({ cls: "image-gen-aspect-visual" });
-			visual.style.aspectRatio = `${preset.wRatio} / ${preset.hRatio}`;
-			const labels = btn.createDiv({ cls: "image-gen-aspect-labels" });
-			labels.createSpan({ cls: "image-gen-aspect-label", text: preset.label });
-			labels.createSpan({ cls: "image-gen-aspect-size", text: formatSize(width, height) });
+			const sizeLabel = formatSize(width, height);
+			const btn = this.aspectEl.createEl("button", {
+				cls: "image-gen-aspect-chip",
+				attr: { type: "button", title: sizeLabel },
+			});
+			btn.createSpan({ cls: "image-gen-aspect-label", text: preset.label });
+			btn.createSpan({ cls: "image-gen-aspect-size", text: sizeLabel });
 			btn.toggleClass("is-active", preset.id === active);
 			btn.onclick = () => void this.applyAspect(preset.id);
 		}
@@ -669,44 +641,43 @@ export class ImageGenView extends ItemView {
 			}
 			this.renderModelPicker();
 			this.renderGenParams();
-			this.updateParamsSummary();
 		} catch {
 			this.modelCatalog = [];
-			this.modelHintEl.addClass("is-hidden");
 			this.renderModelPicker();
-			this.updateParamsSummary();
 		}
 	}
 
 	renderModelPicker(): void {
 		if (!this.modelPickerEl) return;
 		this.modelPickerEl.empty();
-		const active = this.plugin.settings.modelId;
+		const active = this.activeImageModelId();
+		const models = this.availableModels();
+		const serverOnline = this.modelCatalog.length > 0;
 
-		if (!this.modelCatalog.length) {
-			this.modelPickerEl.createDiv({
-				cls: "image-gen-section-hint",
-				text: "Launch the server on the Server tab",
-			});
-			return;
-		}
-
-		this.updateModelHint();
-
-		for (const entry of this.modelCatalog) {
+		for (const entry of models) {
 			const btn = this.modelPickerEl.createEl("button", {
 				cls: "image-gen-model-chip",
 				text: entry.name,
 			});
 			btn.toggleClass("is-active", entry.id === active);
-			btn.setAttr("title", entry.lightning ? "Fast mode" : "");
+			const title = entry.note ?? (entry.lightning ? "Fast mode" : entry.repo_id);
+			btn.setAttr("title", title);
 			btn.onclick = () => void this.selectModel(entry.id);
+		}
+
+		this.updateLoraSectionVisibility();
+
+		if (!serverOnline) {
+			this.modelPickerEl.createDiv({
+				cls: "image-gen-section-hint",
+				text: "Launch the server below to load the selected model.",
+			});
 		}
 	}
 
 	private async selectModel(id: string): Promise<void> {
-		if (this.plugin.settings.modelId === id) return;
-		const spec = this.modelCatalog.find((m) => m.id === id);
+		if (this.activeImageModelId() === id) return;
+		const spec = this.availableModels().find((m) => m.id === id);
 		this.plugin.settings.modelId = id;
 		if (spec) {
 			this.plugin.settings.aspectRatio = "1:1";
@@ -723,36 +694,73 @@ export class ImageGenView extends ItemView {
 		await this.plugin.saveSettings();
 		this.renderModelPicker();
 		this.renderGenParams();
-		this.updateParamsSummary();
 		await this.refreshLoras(false);
-		new Notice(
-			spec ? `Model: ${spec.name} — loads on next generate` : "Model updated",
-			4000
-		);
+		try {
+			await this.plugin.getCore().switcher.activate("image", id, {
+				ensureServer: true,
+				onLog: (l) => this.appendShell(l),
+			});
+			new Notice(spec ? `Model loaded: ${spec.name}` : "Model loaded", 4000);
+		} catch (e) {
+			new Notice(
+				e instanceof Error ? e.message : String(e),
+				5000
+			);
+		}
+	}
+
+	private activeImageModelId(): string {
+		try {
+			return this.plugin.getCore().switcher.getActiveModel("image");
+		} catch {
+			return this.plugin.settings.modelId;
+		}
+	}
+
+	private loraDirPath(): string {
+		return this.plugin.getCore().modelPaths().loras;
 	}
 
 	async refreshLoras(verbose = true): Promise<void> {
+		const spec = this.currentModelSpec();
+		const supports = spec ? modelSupportsLora(spec.family) : false;
+		this.updateLoraSectionVisibility();
+		if (!supports) {
+			this.loraCatalog = [];
+			this.renderLoraPicker();
+			return;
+		}
+
 		const url = this.plugin.settings.serverUrl;
-		const modelId = this.plugin.settings.modelId;
+		const modelId = this.activeImageModelId();
 		try {
 			const catalog = await fetchLoras(url, modelId, verbose);
 			this.loraCatalog = catalog.loras;
 			const compatible = this.loraCatalog.filter((l) => l.compatible);
-			const showStyles = compatible.length > 0;
-			this.loraSectionEl?.toggleClass("is-hidden", !showStyles);
-			this.loraHintEl.addClass("is-hidden");
+			if (compatible.length === 0) {
+				this.loraHintEl.removeClass("is-hidden");
+				this.loraHintEl.setText(
+					catalog.exists
+						? `No LoRAs compatible with this model in ${this.loraDirPath()}`
+						: `Add .safetensors to ${this.loraDirPath()}`
+				);
+			} else {
+				this.loraHintEl.addClass("is-hidden");
+				this.loraHintEl.setText("");
+			}
 			const activeLora = compatible.find((l) => l.id === this.plugin.settings.lora);
 			if (this.plugin.settings.lora && !activeLora) {
 				this.plugin.settings.lora = "";
 				await this.plugin.saveSettings();
 			}
 			this.renderLoraPicker();
-			this.renderGenParams();
-			this.updateParamsSummary();
+			this.toggleLoraScaleField();
 		} catch {
 			this.loraCatalog = [];
-			this.loraSectionEl?.addClass("is-hidden");
+			this.loraHintEl.removeClass("is-hidden");
+			this.loraHintEl.setText("Launch the server to scan LoRA files");
 			this.renderLoraPicker();
+			this.toggleLoraScaleField();
 		}
 	}
 
@@ -781,8 +789,7 @@ export class ImageGenView extends ItemView {
 		this.plugin.settings.lora = id;
 		await this.plugin.saveSettings();
 		this.renderLoraPicker();
-		this.renderGenParams();
-		this.updateParamsSummary();
+		this.toggleLoraScaleField();
 	}
 
 	private renderReqStatus(req: ReqCheckResult | null): void {
@@ -800,31 +807,6 @@ export class ImageGenView extends ItemView {
 				? `Python ${req.python} · all packages OK`
 				: `Python ${req.python ?? "?"} · missing ${req.errors.length} package(s) — run Install deps`
 		);
-	}
-
-	private setPillText(text: string): void {
-		const span = this.genServerPill?.querySelector("span");
-		if (span) span.setText(text);
-	}
-
-	private updateServerPill(ready: boolean, loading: boolean, error?: string): void {
-		if (!this.genServerPill) return;
-		this.genServerPill.removeClass("is-ready");
-		this.genServerPill.removeClass("is-loading");
-		this.genServerPill.removeClass("is-error");
-		if (ready) {
-			this.genServerPill.addClass("is-ready");
-			this.setPillText("Server: ready");
-		} else if (loading) {
-			this.genServerPill.addClass("is-loading");
-			this.setPillText("Server: loading model…");
-		} else if (error) {
-			this.genServerPill.addClass("is-error");
-			this.setPillText(`Server: ${error}`);
-		} else {
-			this.genServerPill.addClass("is-error");
-			this.setPillText("Server: offline — tap to launch");
-		}
 	}
 
 	private setStatusBar(text: string, state: "ready" | "loading" | "error" | "unknown"): void {
@@ -846,7 +828,7 @@ export class ImageGenView extends ItemView {
 		const tools = this.toolsDir();
 		if (verbose) this.appendShell(`# check requirements in ${tools}`);
 		try {
-			const req = await this.plugin.serverRunner.checkRequirements(tools, (line) =>
+			const req = await this.plugin.getCore().runner("image").checkRequirements(tools, (line) =>
 				this.appendShell(line)
 			);
 			this.lastReq = req;
@@ -866,7 +848,7 @@ export class ImageGenView extends ItemView {
 		this.switchTab("server");
 		this.appendShell(`# pip install -r requirements.txt`);
 		try {
-			await this.plugin.serverRunner.installRequirements(tools, (line) =>
+			await this.plugin.getCore().runner("image").installRequirements(tools, (line) =>
 				this.appendShell(line)
 			);
 			new Notice("Dependencies installed");
@@ -894,7 +876,7 @@ export class ImageGenView extends ItemView {
 					return;
 				}
 			}
-			this.plugin.serverRunner.launchServer(tools, (line) => this.appendShell(line));
+			this.plugin.getCore().runner("image").launchServer(tools, (line) => this.appendShell(line));
 			new Notice("Server starting — watch shell output");
 			window.setTimeout(() => void this.checkHealth(true), 3000);
 		} catch (e) {
@@ -905,7 +887,7 @@ export class ImageGenView extends ItemView {
 	}
 
 	onStopServer(): void {
-		this.plugin.serverRunner.stopServer((line) => this.appendShell(line));
+		this.plugin.getCore().runner("image").stopServer((line) => this.appendShell(line));
 	}
 
 	startProgress(label: string): void {
@@ -960,7 +942,6 @@ export class ImageGenView extends ItemView {
 				ready ? "ready" : loading ? "loading" : h.error ? "error" : "error"
 			);
 			this.renderConfigDisplay(model);
-			this.updateServerPill(ready, loading, h.error ?? undefined);
 			if (ready) {
 				void this.refreshModels();
 				void this.refreshLoras(false);
@@ -969,7 +950,6 @@ export class ImageGenView extends ItemView {
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			this.setStatusBar("unreachable", "error");
-			this.updateServerPill(false, false, "offline");
 			if (verbose) this.appendShell(`# health failed: ${msg}`);
 		}
 	}
@@ -1032,23 +1012,50 @@ export class ImageGenView extends ItemView {
 			const frame = this.previewEl.createDiv({ cls: "image-gen-preview-frame" });
 			const img = frame.createEl("img", { cls: "image-gen-preview-img" });
 			img.alt = latest.prompt;
+			img.title = `${latest.prompt}\nseed ${latest.seed}`;
 			img.src = this.app.vault.getResourcePath(file);
+			img.ondblclick = () => void this.app.workspace.openLinkText(latest.path, "", false);
+
+			const menuBtn = frame.createEl("button", {
+				cls: "image-gen-preview-menu clickable-icon",
+				attr: { type: "button", "aria-label": "Image actions" },
+			});
+			setIcon(menuBtn, "more-vertical");
+			menuBtn.onclick = (ev: MouseEvent) => {
+				ev.stopPropagation();
+				const menu = new Menu();
+				menu.addItem((item) =>
+					item
+						.setTitle("Open")
+						.setIcon("file")
+						.onClick(() => void this.app.workspace.openLinkText(latest.path, "", false))
+				);
+				menu.addItem((item) =>
+					item
+						.setTitle("Insert link")
+						.setIcon("link")
+						.onClick(() => this.insertLink(latest.path))
+				);
+				menu.addItem((item) =>
+					item.setTitle("Copy seed").setIcon("hash").onClick(() => {
+						void navigator.clipboard.writeText(String(latest.seed));
+						new Notice("Seed copied");
+					})
+				);
+				menu.showAtMouseEvent(ev);
+			};
 
 			const meta = this.previewEl.createDiv({ cls: "image-gen-preview-meta" });
-			meta.createSpan({ cls: "image-gen-meta-chip", text: `seed ${latest.seed}` });
 			meta.createSpan({
-				cls: "image-gen-meta-chip image-gen-meta-chip-prompt",
-				text: latest.prompt.slice(0, 80) + (latest.prompt.length > 80 ? "…" : ""),
+				cls: "image-gen-preview-prompt",
+				text: latest.prompt,
+				attr: { title: latest.prompt },
 			});
-
-			const actions = this.previewEl.createDiv({ cls: "image-gen-preview-actions" });
-			const openBtn = actions.createEl("button", { text: "Open", cls: "image-gen-preview-btn" });
-			openBtn.onclick = () => void this.app.workspace.openLinkText(latest.path, "", false);
-			const insertBtn = actions.createEl("button", {
-				text: "Insert link",
-				cls: "image-gen-preview-btn mod-cta",
+			meta.createSpan({
+				cls: "image-gen-preview-seed",
+				text: String(latest.seed),
+				attr: { title: `seed ${latest.seed}` },
 			});
-			insertBtn.onclick = () => this.insertLink(latest.path);
 		}
 
 		this.galleryEl.empty();

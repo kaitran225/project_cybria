@@ -2,7 +2,7 @@ import { App, Plugin, PluginSettingTab, Setting, Notice, WorkspaceLeaf } from "o
 import { decodeBase64Png, generateImage, pingServer } from "./client";
 import { GenerateModal } from "./GenerateModal";
 import { ImageGenView, VIEW_TYPE_IMAGE_GEN } from "./ImageGenView";
-import { ImageServerRunner } from "./server-launcher";
+import { requireCybriaCore, type CybriaCoreApi } from "./require-core";
 import { DEFAULT_SETTINGS, type ImageGenSettings } from "./settings";
 import type { OutputRecord } from "./types";
 import type { GenerateProgress } from "./generate-options";
@@ -15,10 +15,15 @@ interface PersistedData extends Partial<ImageGenSettings> {
 export default class ImageGenPlugin extends Plugin {
 	settings: ImageGenSettings = DEFAULT_SETTINGS;
 	recentOutputs: OutputRecord[] = [];
-	serverRunner = new ImageServerRunner();
+	core: CybriaCoreApi | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		try {
+			this.core = requireCybriaCore(this.app);
+		} catch {
+			new Notice("Image Gen requires Cybria Core — enable it in Settings → Community plugins.");
+		}
 
 		this.registerView(VIEW_TYPE_IMAGE_GEN, (leaf) => new ImageGenView(leaf, this));
 
@@ -52,6 +57,11 @@ export default class ImageGenPlugin extends Plugin {
 		});
 
 		this.addSettingTab(new ImageGenSettingTab(this.app, this));
+	}
+
+	getCore(): CybriaCoreApi {
+		if (!this.core) this.core = requireCybriaCore(this.app);
+		return this.core;
 	}
 
 	async loadSettings(): Promise<void> {
@@ -142,9 +152,10 @@ export default class ImageGenPlugin extends Plugin {
 		}
 
 		report(12, `Generating ${s.width}×${s.height}…`);
+		const modelId = this.getCore().switcher.getActiveModel("image");
 		const result = await generateImage(s.serverUrl, {
 			prompt,
-			model: s.modelId,
+			model: modelId,
 			width: s.width,
 			height: s.height,
 			steps: s.steps,

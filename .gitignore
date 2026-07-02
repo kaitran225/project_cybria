@@ -83,6 +83,13 @@ env/
 .ruff_cache/
 *.egg
 
+# --- Global model storage (outside repo) ---
+# Paths are defined in .tools/model-paths.json — default root: G:\.models
+
+# --- LoRA / model weights (large, local) ---
+*.safetensors
+.tools/safetensor/
+
 # --- Archives (local dumps) ---
 *.zip
 *.7z
