@@ -6,13 +6,14 @@ export class ServerLog {
 	private listeners = new Set<LogListener>();
 	private maxLines: number;
 
-	constructor(maxLines = 500) {
+	constructor(maxLines = 5000) {
 		this.maxLines = maxLines;
 	}
 
 	append(line: string): void {
 		this.lines.push(line);
 		if (this.lines.length > this.maxLines) this.lines.shift();
+		console.log(`[cybria] ${line}`);
 		for (const fn of this.listeners) fn(line);
 	}
 

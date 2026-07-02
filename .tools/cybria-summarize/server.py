@@ -140,7 +140,6 @@ def download_model_endpoint(req: LoadRequest) -> dict[str, Any]:
         path = snapshot_download(
             repo_id=spec.repo_id,
             local_dir=str(dest),
-            local_dir_use_symlinks=False,
         )
         return {"ok": True, "path": path}
     except Exception as exc:

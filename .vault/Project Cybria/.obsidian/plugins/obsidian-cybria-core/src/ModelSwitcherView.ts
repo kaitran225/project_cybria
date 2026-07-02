@@ -2,15 +2,17 @@ import { ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { AppsHost } from "./apps/AppsHost";
 import { appTitle, APP_DEFS, type AppId } from "./apps/types";
 import { CybriaDashboardPane } from "./dashboard";
-import { SLOT_LABELS, catalogForSlot, type ModelSlot } from "./catalog";
+import { parseServiceHealth, formatStatusLabel, serviceHealthClass } from "./gateway-health";
+import { catalogForSlot } from "./catalog";
 import type CybriaCorePlugin from "./main";
-import type { SlotState } from "./model-switcher";
-import { SERVICE_LABELS } from "./server-labels";
+import { SERVICE_BLURBS, SERVICE_ICONS, SERVICE_LABELS } from "./server-labels";
 import {
 	CYBRIA_PORT,
+	SERVICE_SLOT,
 	SERVICE_TOOLS,
 	type CybriaServiceKey,
 } from "./servers";
+import { renderTerminalLine } from "./terminal-ansi";
 import type { CoreViewTab } from "./settings";
 
 export const VIEW_TYPE_MODEL_SWITCHER = "cybria-model-switcher";
@@ -20,13 +22,26 @@ const ALL_SERVICES: CybriaServiceKey[] = ["llm", "summarize", "tts", "image"];
 export class ModelSwitcherView extends ItemView {
 	private plugin: CybriaCorePlugin;
 	private statusEl!: HTMLElement;
-	private modelsPane!: HTMLElement;
 	private serversPane!: HTMLElement;
 	private dashboardPane!: CybriaDashboardPane;
 	private appsHost!: AppsHost;
-	private slotsEl!: HTMLElement;
 	private serversEl!: HTMLElement;
+	private workspaceEl!: HTMLElement;
+	private terminalBlockEl!: HTMLElement;
 	private terminalEl!: HTMLElement;
+	private gatewayProcEl!: HTMLElement;
+	private gatewayApiEl!: HTMLElement;
+	private serviceCards = new Map<
+		CybriaServiceKey,
+		{
+			card: HTMLElement;
+			dot: HTMLElement;
+			status: HTMLElement;
+			model: HTMLElement;
+			hint: HTMLElement;
+			select: HTMLSelectElement;
+		}
+	>();
 	private dashboardTabBtn!: HTMLButtonElement;
 	private appsTabBtn!: HTMLButtonElement;
 	private appsTabLabel!: HTMLElement;
@@ -35,9 +50,9 @@ export class ModelSwitcherView extends ItemView {
 	private appPickerBtns = new Map<AppId, HTMLButtonElement>();
 	private appPickerOpen = false;
 	private headerTitleEl!: HTMLElement;
-	private modelsTabBtn!: HTMLButtonElement;
 	private serversTabBtn!: HTMLButtonElement;
 	private unsubLog: (() => void) | null = null;
+	private terminalRendered = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: CybriaCorePlugin) {
 		super(leaf);
@@ -101,13 +116,9 @@ export class ModelSwitcherView extends ItemView {
 		this.appsTabLabel = this.appsTabBtn.createSpan({ cls: "ccore-tab-label", text: "Chat" });
 		this.appsTabChevron = this.appsTabBtn.createSpan("ccore-tab-chevron");
 		setIcon(this.appsTabChevron, "chevron-down");
-		this.modelsTabBtn = tabs.createEl("button", { cls: "ccore-tab" });
-		setIcon(this.modelsTabBtn.createSpan("ccore-tab-icon"), "layers");
-		this.modelsTabBtn.createSpan({ text: "Models", cls: "ccore-tab-label" });
 		this.serversTabBtn = tabs.createEl("button", { cls: "ccore-tab" });
 		setIcon(this.serversTabBtn.createSpan("ccore-tab-icon"), "server");
 		this.serversTabBtn.createSpan({ text: "Servers", cls: "ccore-tab-label" });
-		this.modelsTabBtn.onclick = () => this.showTab("models");
 		this.serversTabBtn.onclick = () => this.showTab("servers");
 
 		this.appPickerEl = tabsWrap.createDiv("ccore-app-picker");
@@ -139,21 +150,13 @@ export class ModelSwitcherView extends ItemView {
 		});
 		this.appsHost.build(root);
 
-		this.modelsPane = root.createDiv("ccore-pane ccore-pane-hidden");
-		const actions = this.modelsPane.createDiv("ccore-actions");
-		const refreshBtn = actions.createEl("button", { cls: "mod-cta ccore-primary-btn" });
-		setIcon(refreshBtn.createSpan("ccore-btn-icon"), "refresh-cw");
-		refreshBtn.createSpan({ text: "Refresh status", cls: "ccore-btn-label" });
-		refreshBtn.onclick = () => void this.refresh();
-		const loadBtn = actions.createEl("button", { text: "Load summarize", cls: "ccore-secondary-btn" });
-		loadBtn.onclick = () => void this.loadLightModels();
-		this.slotsEl = this.modelsPane.createDiv("ccore-slots");
-
-		this.serversPane = root.createDiv("ccore-pane ccore-pane-hidden");
+		this.workspaceEl = root.createDiv("ccore-workspace ccore-pane-hidden");
+		this.serversPane = this.workspaceEl.createDiv("ccore-servers-pane");
 		this.serversEl = this.serversPane.createDiv("ccore-servers");
 		this.buildServerCards();
 
-		const termHead = root.createDiv("ccore-terminal-head");
+		this.terminalBlockEl = this.workspaceEl.createDiv("ccore-terminal-block");
+		const termHead = this.terminalBlockEl.createDiv("ccore-terminal-head");
 		const termTitle = termHead.createDiv("ccore-terminal-title-wrap");
 		setIcon(termTitle.createSpan("ccore-terminal-icon"), "terminal");
 		termTitle.createSpan({ text: "Terminal", cls: "ccore-terminal-title" });
@@ -161,10 +164,9 @@ export class ModelSwitcherView extends ItemView {
 			this.plugin.api.log.clear();
 			this.renderTerminal();
 		};
-		this.terminalEl = root.createDiv("ccore-terminal");
-		this.terminalEl.style.height = `${this.plugin.settings.terminalHeight}px`;
+		this.terminalEl = this.terminalBlockEl.createDiv("ccore-terminal");
 
-		this.unsubLog = this.plugin.api.log.onLine(() => this.renderTerminal());
+		this.unsubLog = this.plugin.api.log.onLine(() => this.appendTerminalLine());
 		this.renderTerminal();
 		this.applyTab(this.plugin.settings.activeViewTab);
 		if (this.plugin.settings.activeViewTab === "apps") {
@@ -175,12 +177,11 @@ export class ModelSwitcherView extends ItemView {
 		this.syncAppPickerSelection();
 
 		this.plugin.api.switcher.onChange(() => {
-			this.renderSlots();
+			this.syncServiceModelSelects();
 			this.dashboardPane?.render();
 			this.appsHost?.refreshSubtabs();
 			this.updateAppHeader();
 		});
-		this.renderSlots();
 		void this.refresh();
 	}
 
@@ -245,20 +246,15 @@ export class ModelSwitcherView extends ItemView {
 	private applyTab(tab: CoreViewTab): void {
 		this.dashboardTabBtn.toggleClass("is-active", tab === "dashboard");
 		this.appsTabBtn.toggleClass("is-active", tab === "apps");
-		this.modelsTabBtn.toggleClass("is-active", tab === "models");
 		this.serversTabBtn.toggleClass("is-active", tab === "servers");
 		this.dashboardPane?.render();
 		const dashPane = this.containerEl.querySelector(".ccore-dashboard-pane");
 		dashPane?.toggleClass("ccore-pane-hidden", tab !== "dashboard");
 		const appsPane = this.containerEl.querySelector(".ccore-apps-pane");
 		appsPane?.toggleClass("ccore-pane-hidden", tab !== "apps");
-		this.modelsPane.toggleClass("ccore-pane-hidden", tab !== "models");
-		this.serversPane.toggleClass("ccore-pane-hidden", tab !== "servers");
-		const showTerminal = tab === "models" || tab === "servers";
-		this.containerEl.querySelector(".ccore-terminal-head")?.toggleClass("ccore-pane-hidden", !showTerminal);
-		this.terminalEl?.toggleClass("ccore-pane-hidden", !showTerminal);
+		this.workspaceEl?.toggleClass("ccore-pane-hidden", tab !== "servers");
 		if (tab === "dashboard") this.updateGatewayHeader();
-		else if (tab === "models") this.setStatusText("Models", "neutral");
+		else if (tab === "servers") void this.refreshServerStatuses();
 		this.updateAppHeader();
 	}
 
@@ -282,13 +278,21 @@ export class ModelSwitcherView extends ItemView {
 		);
 	}
 
+	private appendTerminalLine(): void {
+		if (!this.terminalEl) return;
+		const lines = this.plugin.api.log.getLines();
+		while (this.terminalRendered < lines.length) {
+			renderTerminalLine(this.terminalEl, lines[this.terminalRendered]!);
+			this.terminalRendered++;
+		}
+		this.terminalEl.scrollTop = this.terminalEl.scrollHeight;
+	}
+
 	private renderTerminal(): void {
 		if (!this.terminalEl) return;
 		this.terminalEl.empty();
-		for (const line of this.plugin.api.log.getLines()) {
-			this.terminalEl.createDiv({ text: line, cls: "ccore-terminal-line" });
-		}
-		this.terminalEl.scrollTop = this.terminalEl.scrollHeight;
+		this.terminalRendered = 0;
+		this.appendTerminalLine();
 	}
 
 	private log(line: string): void {
@@ -297,72 +301,256 @@ export class ModelSwitcherView extends ItemView {
 
 	private buildServerCards(): void {
 		this.serversEl.empty();
+		this.serviceCards.clear();
 
 		const gw = this.serversEl.createDiv("ccore-server-card ccore-gateway-card");
 		const gwHead = gw.createDiv("ccore-server-head");
-		gwHead.createEl("h4", { text: "Cybria AI Server" });
-		gwHead.createSpan({ text: ` : ${CYBRIA_PORT}`, cls: "ccore-server-port" });
-		const gwStatus = gw.createDiv("ccore-server-status");
-		gwStatus.setText(this.plugin.api.isGatewayRunning() ? "running" : "stopped");
-		gwStatus.dataset.role = "gateway";
+		gwHead.createEl("h4", { text: "Cybria Gateway" });
+		gwHead.createSpan({ text: ` :${CYBRIA_PORT}`, cls: "ccore-server-port" });
+		gw.createDiv({
+			cls: "ccore-server-desc",
+			text: "Launch starts one gateway process that proxies LLM, Summarize, TTS, and Image services.",
+		});
+
+		const gwStatusRow = gw.createDiv("ccore-server-status-row");
+		this.gatewayProcEl = gwStatusRow.createSpan({ cls: "ccore-server-pill ccore-svc-stopped", text: "process: —" });
+		this.gatewayApiEl = gwStatusRow.createSpan({ cls: "ccore-server-pill ccore-svc-stopped", text: "API: —" });
 
 		const gwActions = gw.createDiv("ccore-actions");
-		gwActions.createEl("button", { text: "Launch", cls: "mod-cta" }).onclick = () =>
+		gwActions.createEl("button", { text: "Launch gateway", cls: "mod-cta" }).onclick = () =>
 			void this.launchGateway();
-		gwActions.createEl("button", { text: "Stop" }).onclick = () => this.stopGateway();
-		gwActions.createEl("button", { text: "Install gateway" }).onclick = () =>
+		gwActions.createEl("button", { text: "Stop gateway", cls: "ccore-secondary-btn" }).onclick = () =>
+			this.stopGateway();
+		gwActions.createEl("button", { text: "Install deps", cls: "ccore-secondary-btn" }).onclick = () =>
 			void this.installGateway();
-		gwActions.createEl("button", { text: "Check all" }).onclick = () => void this.checkGateway();
+		gwActions.createEl("button", { text: "Check all", cls: "ccore-secondary-btn" }).onclick = () =>
+			void this.checkGateway();
+		gwActions.createEl("button", { text: "Refresh status", cls: "ccore-secondary-btn" }).onclick = () =>
+			void this.refresh();
 		gw.createDiv("ccore-server-meta").setText(this.plugin.api.baseUrl());
 
+		const grid = this.serversEl.createDiv("ccore-svc-grid");
 		for (const service of ALL_SERVICES) {
-			const card = this.serversEl.createDiv("ccore-server-card");
-			const head = card.createDiv("ccore-server-head");
-			head.createEl("h4", { text: SERVICE_LABELS[service] });
-			head.createSpan({ text: ` /${service}`, cls: "ccore-server-port" });
+			const slot = SERVICE_SLOT[service];
+			const card = grid.createDiv("ccore-svc-card");
+			const top = card.createDiv("ccore-svc-card-top");
+			const titleWrap = top.createDiv("ccore-svc-title-wrap");
+			const iconEl = titleWrap.createSpan("ccore-svc-icon");
+			setIcon(iconEl, SERVICE_ICONS[service]);
+			const titles = titleWrap.createDiv("ccore-svc-titles");
+			titles.createDiv("ccore-svc-title").setText(SERVICE_LABELS[service]);
+			titles.createDiv("ccore-svc-blurb").setText(SERVICE_BLURBS[service]);
 
-			const actions = card.createDiv("ccore-actions");
-			actions.createEl("button", { text: "Install deps" }).onclick = () =>
-				void this.installServiceDeps(service);
+			const statusWrap = top.createDiv("ccore-svc-status-wrap");
+			const dot = statusWrap.createSpan("ccore-svc-dot");
+			const status = statusWrap.createSpan({ cls: "ccore-svc-pill ccore-svc-offline", text: "—" });
+
+			const body = card.createDiv("ccore-svc-card-body");
+			const modelRow = body.createDiv("ccore-svc-model-row");
+			modelRow.createSpan({ text: "Model", cls: "ccore-svc-model-label" });
+			const select = modelRow.createEl("select", { cls: "ccore-svc-model-select" });
+			for (const m of catalogForSlot(slot)) {
+				const opt = select.createEl("option", { text: m.name, value: m.id });
+				if (m.runnable === "tight") opt.text = `${m.name} (tight)`;
+			}
+			select.value = this.plugin.settings.activeModels[slot];
+			select.onchange = () => {
+				this.plugin.settings.activeModels[slot] = select.value;
+				void this.plugin.saveSettings();
+			};
+
+			const model = body.createDiv({ cls: "ccore-svc-model is-hidden", text: "" });
+			const hint = body.createDiv({ cls: "ccore-svc-hint is-hidden", text: "" });
+			this.serviceCards.set(service, { card, dot, status, model, hint, select });
+
+			const actions = card.createDiv("ccore-svc-actions");
+			const primary = actions.createDiv("ccore-svc-actions-primary");
+			primary.createEl("button", { text: "Start", cls: "ccore-svc-btn ccore-svc-btn-start" }).onclick =
+				() => void this.startService(service);
+			primary.createEl("button", { text: "Stop", cls: "ccore-svc-btn ccore-svc-btn-stop" }).onclick =
+				() => void this.stopService(service);
+
+			const tools = actions.createDiv("ccore-svc-actions-tools");
+			tools.createEl("button", { text: "Install", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+				() => void this.installServiceDeps(service);
 			if (service === "llm") {
-				actions.createEl("button", { text: "Download model" }).onclick = () =>
-					void this.downloadLlmModel();
+				tools.createEl("button", { text: "Download", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+					() => void this.downloadLlmModel();
 			}
 			if (service === "summarize") {
-				actions.createEl("button", { text: "Download model" }).onclick = () =>
-					void this.downloadSummarizeModel();
+				tools.createEl("button", { text: "Download", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+					() => void this.downloadSummarizeModel();
 			}
 			if (service === "tts") {
-				actions.createEl("button", { text: "Download model" }).onclick = () =>
-					void this.downloadTtsModel();
-				actions.createEl("button", { text: "Load model" }).onclick = () =>
-					void this.loadTtsModel();
+				tools.createEl("button", { text: "Download", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+					() => void this.downloadTtsModel();
 			}
 
-			card.createDiv("ccore-server-meta").setText(this.plugin.api.serviceUrl(service));
+			card.createDiv("ccore-svc-url").setText(this.plugin.api.serviceUrl(service));
+		}
+
+		void this.refreshServerStatuses();
+	}
+
+	private async refreshServerStatuses(): Promise<void> {
+		const localProc = this.plugin.api.isGatewayRunning();
+		this.gatewayProcEl?.setText(localProc ? "process: running" : "process: stopped");
+		this.gatewayProcEl?.removeClass("ccore-svc-ready", "ccore-svc-stopped");
+		this.gatewayProcEl?.addClass(localProc ? "ccore-svc-ready" : "ccore-svc-stopped");
+
+		const health = await this.plugin.api.fetchGatewayHealth();
+		this.gatewayApiEl?.setText(health ? "API: online" : "API: offline");
+		this.gatewayApiEl?.removeClass("ccore-svc-ready", "ccore-svc-stopped", "ccore-svc-offline");
+		this.gatewayApiEl?.addClass(health ? "ccore-svc-ready" : localProc ? "ccore-svc-loading" : "ccore-svc-offline");
+
+		for (const service of ALL_SERVICES) {
+			const els = this.serviceCards.get(service);
+			if (!els) continue;
+			const parsed = parseServiceHealth(health?.services?.[service]);
+			if (!health && !localProc) {
+				this.paintServiceCard(els, {
+					state: "offline",
+					label: "offline",
+					model: "—",
+					detail: "Launch gateway first",
+				});
+				continue;
+			}
+			if (!health && localProc) {
+				this.paintServiceCard(els, {
+					state: "loading",
+					label: "starting",
+					model: "—",
+					detail: "Gateway warming up…",
+				});
+				continue;
+			}
+			this.paintServiceCard(els, parsed);
 		}
 	}
 
-	private refreshServerStatuses(): void {
-		const gw = this.serversEl?.querySelector('[data-role="gateway"]') as HTMLElement | null;
-		if (gw) {
-			gw.setText(this.plugin.api.isGatewayRunning() ? "running" : "stopped");
+	private paintServiceCard(
+		els: { card: HTMLElement; dot: HTMLElement; status: HTMLElement; model: HTMLElement; hint: HTMLElement },
+		parsed: ReturnType<typeof parseServiceHealth>
+	): void {
+		els.card.removeClass(
+			"is-offline",
+			"is-stopped",
+			"is-loading",
+			"is-ready",
+			"is-error"
+		);
+		els.card.addClass(`is-${parsed.state === "stopped" ? "idle" : parsed.state}`);
+
+		els.status.setText(formatStatusLabel(parsed.label));
+		els.status.removeClass(
+			"ccore-svc-offline",
+			"ccore-svc-stopped",
+			"ccore-svc-loading",
+			"ccore-svc-ready",
+			"ccore-svc-error"
+		);
+		els.status.addClass(serviceHealthClass(parsed.state));
+
+		els.dot.removeClass("is-ready", "is-loading", "is-offline", "is-error");
+		if (parsed.state === "ready") els.dot.addClass("is-ready");
+		else if (parsed.state === "loading") els.dot.addClass("is-loading");
+		else if (parsed.state === "error") els.dot.addClass("is-error");
+		else els.dot.addClass("is-offline");
+
+		const hasModel = parsed.model && parsed.model !== "—";
+		els.model.toggleClass("is-hidden", !hasModel);
+		if (hasModel) els.model.setText(parsed.model);
+
+		els.hint.removeClass("is-visible", "is-info", "is-warn", "is-error");
+		if (parsed.detail) {
+			els.hint.setText(parsed.detail);
+			els.hint.addClass("is-visible");
+			if (parsed.state === "error") els.hint.addClass("is-error");
+			else if (parsed.state === "loading") els.hint.addClass("is-info");
+			else if (parsed.state === "offline") els.hint.addClass("is-warn");
+			else els.hint.addClass("is-info");
 		}
+	}
+
+	private syncServiceModelSelects(): void {
+		for (const service of ALL_SERVICES) {
+			const els = this.serviceCards.get(service);
+			if (!els) continue;
+			const slot = SERVICE_SLOT[service];
+			const active = this.plugin.settings.activeModels[slot];
+			if (els.select.value !== active) els.select.value = active;
+		}
+	}
+
+	private selectedModelId(service: CybriaServiceKey): string {
+		const els = this.serviceCards.get(service);
+		if (els?.select.value) return els.select.value;
+		return this.plugin.settings.activeModels[SERVICE_SLOT[service]];
+	}
+
+	private async startService(service: CybriaServiceKey): Promise<void> {
+		const slot = SERVICE_SLOT[service];
+		const modelId = this.selectedModelId(service);
+		this.plugin.settings.activeModels[slot] = modelId;
+		void this.plugin.saveSettings();
+
+		this.log(`# start service ${service} with ${modelId}`);
+		if (!this.plugin.api.isGatewayRunning()) {
+			new Notice("Launch gateway first");
+			return;
+		}
+		this.setStatusText(`Starting ${SERVICE_LABELS[service]}…`, "loading");
+		try {
+			const ok = await this.plugin.api.startService(service);
+			if (!ok) {
+				new Notice(`${SERVICE_LABELS[service]} process failed to start`);
+				return;
+			}
+			await this.plugin.api.switcher.activate(slot, modelId, { ensureServer: false });
+			new Notice(`${SERVICE_LABELS[service]} started with ${modelId}`);
+		} catch (e) {
+			new Notice(`Start failed: ${e instanceof Error ? e.message : e}`);
+		} finally {
+			await this.refreshServerStatuses();
+			void this.refresh();
+		}
+	}
+
+	private async stopService(service: CybriaServiceKey): Promise<void> {
+		this.log(`# stop service ${service}`);
+		await this.plugin.api.stopService(service);
+		new Notice(`${SERVICE_LABELS[service]} stopped`);
+		await this.refreshServerStatuses();
+		void this.refresh();
 	}
 
 	private async launchGateway(): Promise<void> {
 		this.log(`# launch cybria-server :${CYBRIA_PORT}`);
+		if (!this.plugin.api.isGatewayRunning()) {
+			const existing = await this.plugin.api.fetchGatewayHealth();
+			if (existing) {
+				this.log(
+					`[gateway] port ${CYBRIA_PORT} already answering — an external gateway is running. Stop it or restart Obsidian before launching a new one.`
+				);
+				new Notice("Gateway already running on :2253");
+				await this.refreshServerStatuses();
+				return;
+			}
+		}
 		try {
 			this.plugin.api
 				.runner()
 				.launchServer(this.plugin.api.resolveToolsDir("gateway"), (l) => this.log(l));
 			new Notice("Cybria AI server starting");
 			window.setTimeout(() => {
-				this.refreshServerStatuses();
+				void this.refreshServerStatuses();
 				this.dashboardPane?.render();
 				this.updateGatewayHeader();
+				void this.refresh();
 			}, 2000);
 		} catch (e) {
+			this.log(`[gateway] launch failed: ${e instanceof Error ? e.message : e}`);
 			new Notice(`Launch failed: ${e instanceof Error ? e.message : e}`);
 		}
 	}
@@ -370,7 +558,7 @@ export class ModelSwitcherView extends ItemView {
 	private stopGateway(): void {
 		this.log("# stop cybria-server");
 		this.plugin.api.runner().stopServer((l) => this.log(l));
-		this.refreshServerStatuses();
+		void this.refreshServerStatuses();
 		this.dashboardPane?.render();
 		this.updateGatewayHeader();
 		void this.refresh();
@@ -411,7 +599,7 @@ export class ModelSwitcherView extends ItemView {
 	}
 
 	private async downloadLlmModel(): Promise<void> {
-		const modelId = this.plugin.settings.activeModels.llm;
+		const modelId = this.selectedModelId("llm");
 		try {
 			await this.plugin.api
 				.serviceRunner(SERVICE_TOOLS.llm)
@@ -423,7 +611,7 @@ export class ModelSwitcherView extends ItemView {
 	}
 
 	private async downloadSummarizeModel(): Promise<void> {
-		const modelId = this.plugin.settings.activeModels.summarize;
+		const modelId = this.selectedModelId("summarize");
 		try {
 			await this.plugin.api.summarize.downloadModel(
 				modelId,
@@ -437,19 +625,11 @@ export class ModelSwitcherView extends ItemView {
 
 	private async downloadTtsModel(): Promise<void> {
 		try {
-			await this.plugin.api.tts.downloadModel(this.plugin.api.serviceUrl("tts"));
+			const modelId = this.selectedModelId("tts");
+			await this.plugin.api.tts.downloadModel(modelId, this.plugin.api.serviceUrl("tts"));
 			new Notice("TTS model download started");
 		} catch (e) {
 			new Notice(`Download failed: ${e instanceof Error ? e.message : e}`);
-		}
-	}
-
-	private async loadTtsModel(): Promise<void> {
-		try {
-			await this.plugin.api.tts.loadModel(this.plugin.api.serviceUrl("tts"));
-			new Notice("TTS model loading");
-		} catch (e) {
-			new Notice(`Load failed: ${e instanceof Error ? e.message : e}`);
 		}
 	}
 
@@ -469,87 +649,7 @@ export class ModelSwitcherView extends ItemView {
 		} catch (e) {
 			this.setStatusText(`Refresh failed: ${e instanceof Error ? e.message : e}`, "offline");
 		}
-		this.renderSlots();
-		this.refreshServerStatuses();
-		this.dashboardPane?.render();
-	}
-
-	private async loadLightModels(): Promise<void> {
-		try {
-			await this.plugin.api.switcher.activate(
-				"summarize",
-				this.plugin.settings.activeModels.summarize,
-				{ ensureServer: true }
-			);
-			new Notice("Summarization model loaded");
-		} catch (e) {
-			new Notice(`Load failed: ${e instanceof Error ? e.message : e}`);
-		}
-	}
-
-	private renderSlots(): void {
-		if (!this.slotsEl) return;
-		this.slotsEl.empty();
-		const switcher = this.plugin.api.switcher;
-
-		for (const slot of switcher.listSlots()) {
-			const state = switcher.getState(slot);
-			const section = this.slotsEl.createDiv("ccore-slot");
-			const head = section.createDiv("ccore-slot-head");
-			head.createEl("span", { text: SLOT_LABELS[slot], cls: "ccore-slot-title" });
-			head.createEl("span", {
-				text: this.statusLabel(state),
-				cls: `ccore-slot-badge ccore-badge-${state.status}`,
-			});
-
-			const active = catalogForSlot(slot).find((m) => m.id === state.activeModelId);
-			if (active?.note) {
-				section.createDiv({ text: active.note, cls: "ccore-slot-note" });
-			}
-
-			const pills = section.createDiv("ccore-pills");
-			for (const m of catalogForSlot(slot)) {
-				const btn = pills.createEl("button", {
-					text: m.name,
-					cls: "ccore-pill",
-				});
-				if (m.id === state.activeModelId) btn.addClass("is-active");
-				if (m.runnable === "tight") btn.addClass("is-tight");
-				btn.onclick = () => void this.activateSlot(slot, m.id);
-			}
-
-			const row = section.createDiv("ccore-slot-actions");
-			const serviceKey = (slot === "novel" ? "llm" : slot) as CybriaServiceKey;
-			row.createSpan({
-				text: `${this.plugin.api.serviceUrl(serviceKey)} · `,
-				cls: "ccore-slot-meta",
-			});
-			row.createSpan({
-				text: state.serverRunning ? "server running" : "server stopped",
-				cls: state.serverRunning ? "ccore-meta-ok" : "ccore-meta-off",
-			});
-		}
-	}
-
-	private statusLabel(state: SlotState): string {
-		if (state.status === "loading") return "loading…";
-		if (state.status === "ready") {
-			return state.loadedModelId === state.activeModelId ? "ready" : "ready (other loaded)";
-		}
-		if (state.status === "error") return "error";
-		return state.serverRunning ? "idle" : "offline";
-	}
-
-	private async activateSlot(slot: ModelSlot, modelId: string): Promise<void> {
-		this.log(`# activate ${slot} → ${modelId}`);
-		try {
-			await this.plugin.api.switcher.activate(slot, modelId, { ensureServer: true });
-			new Notice(`${SLOT_LABELS[slot]}: ${modelId} loaded`);
-		} catch (e) {
-			new Notice(`Failed: ${e instanceof Error ? e.message : e}`);
-		}
-		this.renderSlots();
-		this.refreshServerStatuses();
+		void this.refreshServerStatuses();
 		this.dashboardPane?.render();
 	}
 }

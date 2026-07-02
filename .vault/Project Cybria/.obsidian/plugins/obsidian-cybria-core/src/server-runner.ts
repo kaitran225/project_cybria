@@ -20,10 +20,52 @@ export interface ReqCheckResult {
 
 export type ServerEnvExtra = (paths: ModelPathsConfig) => Record<string, string>;
 
-function splitLines(text: string, onLine: (line: string) => void): void {
-	for (const line of text.split(/\r?\n/)) {
-		if (line.length > 0) onLine(line);
+/**
+ * Stateful line splitter: buffers partial lines that arrive split across
+ * stdout/stderr chunks, so nothing is ever dropped or fragmented.
+ */
+class LineBuffer {
+	private buf = "";
+
+	constructor(private readonly onLine: (line: string) => void) {}
+
+	push(chunk: string): void {
+		this.buf += chunk;
+		let idx: number;
+		while ((idx = this.buf.indexOf("\n")) >= 0) {
+			const line = this.buf.slice(0, idx).replace(/\r$/, "");
+			this.buf = this.buf.slice(idx + 1);
+			this.onLine(line);
+		}
 	}
+
+	flush(): void {
+		if (this.buf.length > 0) {
+			const rest = this.buf.replace(/\r$/, "");
+			this.buf = "";
+			if (rest.length > 0) this.onLine(rest);
+		}
+	}
+}
+
+/** Attach stdout+stderr of a process to a log sink, labeling stderr. */
+function pipeProcess(
+	proc: import("child_process").ChildProcess,
+	onLine: (line: string) => void,
+	label: string
+): void {
+	const out = new LineBuffer(onLine);
+	const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+	proc.stdout?.setEncoding("utf-8");
+	proc.stderr?.setEncoding("utf-8");
+	proc.stdout?.on("data", (c: string) => out.push(c));
+	proc.stderr?.on("data", (c: string) => err.push(c));
+	proc.on("error", (e) => onLine(`[${label}] spawn error: ${e.message}`));
+	proc.on("close", (code, signal) => {
+		out.flush();
+		err.flush();
+		onLine(`[${label}] exited (code ${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
+	});
 }
 
 export class CybriaServerRunner {
@@ -70,23 +112,20 @@ export class CybriaServerRunner {
 		this.ensureModelDirs(toolsDir);
 		const paths = loadModelPathsFromTools(toolsDir);
 		const extra = this.extraEnv?.(paths) ?? {};
-		return { ...process.env, ...modelPathEnv(paths), ...extra };
+		return { ...process.env, ...modelPathEnv(paths), ...extra, ...this.runtimeEnv() };
+	}
+
+	private runtimeEnv(): NodeJS.ProcessEnv {
+		return {
+			PYTHONUNBUFFERED: "1",
+			PYTHONIOENCODING: "utf-8",
+			FORCE_COLOR: "1",
+			HF_HUB_ENABLE_HF_TRANSFER: "1",
+		};
 	}
 
 	isRunning(): boolean {
 		return this.proc !== null;
-	}
-
-	private attachStreams(
-		proc: ChildProcessWithoutNullStreams,
-		onLine: (line: string) => void
-	): void {
-		proc.stdout.on("data", (chunk: Buffer) => splitLines(chunk.toString(), onLine));
-		proc.stderr.on("data", (chunk: Buffer) => splitLines(chunk.toString(), onLine));
-		proc.on("close", (code) => {
-			onLine(`[exit ${code ?? "?"}]`);
-			if (this.proc === proc) this.proc = null;
-		});
 	}
 
 	runCommand(
@@ -97,12 +136,26 @@ export class CybriaServerRunner {
 		env?: NodeJS.ProcessEnv
 	): Promise<number> {
 		onLine(`$ ${cmd} ${args.join(" ")}`);
+		onLine(`  cwd: ${cwd}`);
 		return new Promise((resolve, reject) => {
 			const proc = spawn(cmd, args, { cwd, windowsHide: true, env });
-			proc.stdout?.on("data", (c: Buffer) => splitLines(c.toString(), onLine));
-			proc.stderr?.on("data", (c: Buffer) => splitLines(c.toString(), onLine));
-			proc.on("error", reject);
-			proc.on("close", (code) => resolve(code ?? 1));
+			onLine(`  pid: ${proc.pid ?? "(failed to spawn)"}`);
+			const out = new LineBuffer(onLine);
+			const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+			proc.stdout?.setEncoding("utf-8");
+			proc.stderr?.setEncoding("utf-8");
+			proc.stdout?.on("data", (c: string) => out.push(c));
+			proc.stderr?.on("data", (c: string) => err.push(c));
+			proc.on("error", (e) => {
+				onLine(`  spawn error: ${e.message}`);
+				reject(e);
+			});
+			proc.on("close", (code, signal) => {
+				out.flush();
+				err.flush();
+				onLine(`[exit ${code ?? "?"}${signal ? ` signal ${signal}` : ""}]`);
+				resolve(code ?? 1);
+			});
 		});
 	}
 
@@ -120,22 +173,31 @@ export class CybriaServerRunner {
 	): Promise<ReqCheckResult> {
 		await this.ensureVenv(toolsDir, onLine);
 		const py = this.pythonExe(toolsDir);
-		onLine(`$ ${py} check_env.py`);
+		onLine(`$ ${py} -u check_env.py`);
 		return new Promise((resolve, reject) => {
-			const proc = spawn(py, ["check_env.py"], {
+			const proc = spawn(py, ["-u", "check_env.py"], {
 				cwd: toolsDir,
 				windowsHide: true,
 				env: this.serverEnv(toolsDir),
 			});
+			onLine(`  pid: ${proc.pid ?? "(failed to spawn)"}`);
 			let stdout = "";
-			proc.stdout?.on("data", (c: Buffer) => {
-				const t = c.toString();
-				splitLines(t, onLine);
-				stdout += t;
+			const out = new LineBuffer((l) => {
+				onLine(l);
+				stdout += l + "\n";
 			});
-			proc.stderr?.on("data", (c: Buffer) => splitLines(c.toString(), onLine));
-			proc.on("error", reject);
+			const err = new LineBuffer((l) => onLine(`⟨err⟩ ${l}`));
+			proc.stdout?.setEncoding("utf-8");
+			proc.stderr?.setEncoding("utf-8");
+			proc.stdout?.on("data", (c: string) => out.push(c));
+			proc.stderr?.on("data", (c: string) => err.push(c));
+			proc.on("error", (e) => {
+				onLine(`  spawn error: ${e.message}`);
+				reject(e);
+			});
 			proc.on("close", (code) => {
+				out.flush();
+				err.flush();
 				try {
 					const line = stdout.trim().split(/\r?\n/).pop() ?? "{}";
 					resolve(JSON.parse(line) as ReqCheckResult);
@@ -172,7 +234,7 @@ export class CybriaServerRunner {
 		const py = this.pythonExe(toolsDir);
 		const code = await this.runCommand(
 			py,
-			["download.py", modelId],
+			["-u", "download.py", modelId],
 			toolsDir,
 			onLine,
 			this.serverEnv(toolsDir)
@@ -186,14 +248,25 @@ export class CybriaServerRunner {
 			return;
 		}
 		const py = this.pythonExe(toolsDir);
-		onLine(`$ ${py} server.py`);
-		const proc = spawn(py, ["server.py"], {
+		if (!existsSync(py)) {
+			onLine(`[gateway] python not found: ${py}`);
+			onLine(`[gateway] run "Install deps" to create the venv first`);
+			return;
+		}
+		onLine(`$ ${py} -u server.py`);
+		onLine(`  cwd: ${toolsDir}`);
+		const env = this.serverEnv(toolsDir);
+		const proc = spawn(py, ["-u", "server.py"], {
 			cwd: toolsDir,
 			windowsHide: true,
-			env: this.serverEnv(toolsDir),
+			env,
 		}) as ChildProcessWithoutNullStreams;
 		this.proc = proc;
-		this.attachStreams(proc, onLine);
+		onLine(`  pid: ${proc.pid ?? "(failed to spawn)"}`);
+		pipeProcess(proc, onLine, "gateway");
+		proc.on("close", () => {
+			if (this.proc === proc) this.proc = null;
+		});
 	}
 
 	stopServer(onLine: (line: string) => void): void {

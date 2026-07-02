@@ -7,7 +7,9 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -54,15 +56,8 @@ SERVICES: dict[str, dict[str, Any]] = {
 }
 
 _procs: dict[str, subprocess.Popen[Any]] = {}
+_log_threads: dict[str, threading.Thread] = {}
 _client: httpx.AsyncClient | None = None
-
-app = FastAPI(title="cybria-server", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 def _python_exe(tools_dir: Path) -> Path:
@@ -85,6 +80,25 @@ def _model_path_env() -> dict[str, str]:
         return {}
 
 
+def _service_runtime_env() -> dict[str, str]:
+    return {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "FORCE_COLOR": "1",
+        "HF_HUB_ENABLE_HF_TRANSFER": os.environ.get("HF_HUB_ENABLE_HF_TRANSFER", "1"),
+    }
+
+
+def _drain_service_logs(name: str, proc: subprocess.Popen[Any]) -> None:
+    stream = proc.stdout
+    if stream is None:
+        return
+    for raw in stream:
+        line = raw.rstrip()
+        if line:
+            print(f"[{name}] {line}", flush=True)
+
+
 def start_service(name: str) -> None:
     cfg = SERVICES[name]
     tools_dir = TOOLS / cfg["dir"]
@@ -92,7 +106,7 @@ def start_service(name: str) -> None:
     if not py.is_file():
         raise FileNotFoundError(f"Missing venv for {name}: {py}")
 
-    env = {**os.environ, **_model_path_env()}
+    env = {**os.environ, **_model_path_env(), **_service_runtime_env()}
     env[cfg["env_port"]] = str(cfg["internal_port"])
     env.update(cfg.get("extra_env", {}))
 
@@ -100,15 +114,25 @@ def start_service(name: str) -> None:
     if proc is not None and proc.poll() is None:
         return
 
-    print(f"[cybria-server] starting {name} on 127.0.0.1:{cfg['internal_port']}")
-    _procs[name] = subprocess.Popen(
-        [str(py), "server.py"],
+    print(f"[cybria-server] starting {name} on 127.0.0.1:{cfg['internal_port']}", flush=True)
+    proc = subprocess.Popen(
+        [str(py), "-u", "server.py"],
         cwd=str(tools_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
     )
+    _procs[name] = proc
+    thread = threading.Thread(
+        target=_drain_service_logs,
+        args=(name, proc),
+        daemon=True,
+        name=f"cybria-log-{name}",
+    )
+    _log_threads[name] = thread
+    thread.start()
 
 
 def start_all_services() -> None:
@@ -129,6 +153,7 @@ def stop_all_services() -> None:
             except subprocess.TimeoutExpired:
                 proc.kill()
         _procs.pop(name, None)
+    _log_threads.clear()
 
 
 def _service_base(name: str) -> str:
@@ -139,35 +164,40 @@ def _service_base(name: str) -> str:
 async def _wait_for_service(name: str, timeout: float = 120.0) -> bool:
     deadline = time.time() + timeout
     url = f"{_service_base(name)}/health"
+    assert _client is not None
     while time.time() < deadline:
         proc = _procs.get(name)
         if proc is not None and proc.poll() is not None:
             return False
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                r = await client.get(url)
-                if r.status_code < 500:
-                    return True
+            r = await _client.get(url, timeout=3.0)
+            if r.status_code < 500:
+                return True
         except Exception:
             pass
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
     return False
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global _client
     _client = httpx.AsyncClient(timeout=None)
     start_all_services()
-
-
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    global _client
+    yield
     if _client:
         await _client.aclose()
         _client = None
     stop_all_services()
+
+
+app = FastAPI(title="cybria-server", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -205,6 +235,7 @@ async def api_stop_service(name: str) -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             proc.kill()
     _procs.pop(name, None)
+    _log_threads.pop(name, None)
     return {"ok": True, "service": name}
 
 
@@ -265,5 +296,5 @@ def _handle_signal(*_args: Any) -> None:
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
-    print(f"[cybria-server] gateway http://{HOST}:{PORT}")
+    print(f"[cybria-server] gateway starting on http://{HOST}:{PORT}", flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")

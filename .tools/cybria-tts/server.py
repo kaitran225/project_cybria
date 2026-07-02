@@ -1,4 +1,4 @@
-"""Cybria TTS API — manages vllm-omni for Higgs TTS."""
+"""Cybria TTS API — manages vllm-omni for MOSS-TTS-Nano (and optional Higgs)."""
 
 from __future__ import annotations
 
@@ -18,15 +18,17 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from model_paths import ensure_model_dirs, tts_dir
+from models import DEFAULT_MODEL_ID, DEFAULT_VOICE, get_model, storage_dir_name
 
 ensure_model_dirs()
 
 HOST = os.environ.get("CYBRIA_TTS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CYBRIA_TTS_PORT", "8792"))
 INNER_PORT = int(os.environ.get("CYBRIA_TTS_INNER_PORT", "18792"))
-MODEL_REPO = os.environ.get("CYBRIA_TTS_MODEL", "bosonai/higgs-tts-3-4b")
+ACTIVE_MODEL_ID = os.environ.get("CYBRIA_TTS_MODEL_ID", DEFAULT_MODEL_ID)
+GPU_MEMORY_UTIL = os.environ.get("CYBRIA_TTS_GPU_MEMORY_UTILIZATION", "0.3")
 
-app = FastAPI(title="cybria-tts", version="0.1.0")
+app = FastAPI(title="cybria-tts", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,12 +38,21 @@ app.add_middleware(
 
 _proc: subprocess.Popen[Any] | None = None
 _error: str | None = None
+_active = get_model(ACTIVE_MODEL_ID)
 
 
 class TtsRequest(BaseModel):
     text: str
     voice: str = ""
     speed: float = 1.0
+
+
+class LoadRequest(BaseModel):
+    model_id: str = Field(default=DEFAULT_MODEL_ID)
+
+
+class DownloadRequest(BaseModel):
+    model_id: str = Field(default=DEFAULT_MODEL_ID)
 
 
 def _inner_base() -> str:
@@ -52,26 +63,58 @@ def _is_running() -> bool:
     return _proc is not None and _proc.poll() is None
 
 
-def _start_vllm() -> None:
-    global _proc, _error
-    if _is_running():
-        return
-    local = tts_dir() / "higgs-tts-3-4b"
-    model_ref = str(local) if local.is_dir() and any(local.iterdir()) else MODEL_REPO
+def _local_model_path(model_id: str) -> Path:
+    return tts_dir() / storage_dir_name(model_id)
+
+
+def _model_ref(spec: Any) -> str:
+    local = _local_model_path(spec.id)
+    if local.is_dir() and any(local.iterdir()):
+        return str(local)
+    return spec.repo_id
+
+
+def _vllm_cmd(model_ref: str) -> list[str]:
     venv_scripts = Path(sys.executable).parent
     vllm = venv_scripts / "vllm.exe"
+    bin_name = str(vllm) if vllm.is_file() else "vllm"
     cmd = [
-        str(vllm) if vllm.is_file() else "vllm-omni",
+        bin_name,
         "serve",
         model_ref,
         "--host",
         "127.0.0.1",
         "--port",
         str(INNER_PORT),
-        "--trust-remote-code",
         "--omni",
     ]
-    print(f"[tts] starting: {' '.join(cmd)}")
+    if GPU_MEMORY_UTIL:
+        cmd.extend(["--gpu-memory-utilization", GPU_MEMORY_UTIL])
+    if _active.id == "higgs-tts-3-4b":
+        cmd.append("--trust-remote-code")
+    return cmd
+
+
+def _stop_vllm() -> None:
+    global _proc
+    if _proc is None:
+        return
+    if _proc.poll() is None:
+        _proc.terminate()
+        try:
+            _proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _proc.kill()
+    _proc = None
+
+
+def _start_vllm() -> None:
+    global _proc, _error
+    if _is_running():
+        return
+    model_ref = _model_ref(_active)
+    cmd = _vllm_cmd(model_ref)
+    print(f"[tts] starting {_active.id}: {' '.join(cmd)}", flush=True)
     try:
         _proc = subprocess.Popen(
             cmd,
@@ -80,24 +123,25 @@ def _start_vllm() -> None:
             text=True,
         )
     except FileNotFoundError as exc:
-        _error = "vllm-omni not installed. Run pip install vllm-omni in cybria-tts venv."
+        _error = "vllm not installed. Run: pip install vllm-omni (in cybria-tts venv)"
         raise RuntimeError(_error) from exc
 
     deadline = time.time() + 300
     while time.time() < deadline:
         if _proc.poll() is not None:
-            out = _proc.stdout.read(2000) if _proc.stdout else ""
-            _error = f"vllm-omni exited: {out[:500]}"
+            out = _proc.stdout.read(4000) if _proc.stdout else ""
+            _error = f"vllm exited: {out[:800]}"
             raise RuntimeError(_error)
         try:
             r = httpx.get(f"{_inner_base()}/health", timeout=2.0)
             if r.status_code == 200:
                 _error = None
+                print(f"[tts] ready — {_active.repo_id}", flush=True)
                 return
         except Exception:
             pass
         time.sleep(1.0)
-    _error = "vllm-omni startup timeout"
+    _error = "vllm startup timeout (5 min)"
     raise RuntimeError(_error)
 
 
@@ -105,17 +149,48 @@ def _start_vllm() -> None:
 def health() -> dict[str, Any]:
     return {
         "ready": _is_running(),
-        "model": MODEL_REPO,
+        "model_id": _active.id,
+        "model": _active.repo_id,
+        "voice_default": _active.default_voice,
         "error": _error,
         "inner_url": _inner_base() if _is_running() else None,
     }
 
 
+@app.get("/models")
+def list_models() -> dict[str, Any]:
+    from models import MODELS
+
+    return {
+        "default": DEFAULT_MODEL_ID,
+        "active": _active.id,
+        "models": [
+            {
+                "id": m.id,
+                "name": m.name,
+                "repo_id": m.repo_id,
+                "size_gb": m.size_gb,
+                "runnable_local": m.runnable_local,
+                "default_voice": m.default_voice,
+                "note": m.note,
+            }
+            for m in MODELS
+        ],
+    }
+
+
 @app.post("/models/load")
-def load_model() -> dict[str, Any]:
+def load_model(req: LoadRequest | None = None) -> dict[str, Any]:
+    global _active
+    target = get_model(req.model_id if req else DEFAULT_MODEL_ID)
+    if target.id != _active.id:
+        _stop_vllm()
+        _active = target
+    elif _is_running():
+        return {"ok": True, "model_id": _active.id, "model": _active.repo_id}
     try:
         _start_vllm()
-        return {"ok": True, "model": MODEL_REPO}
+        return {"ok": True, "model_id": _active.id, "model": _active.repo_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -131,13 +206,15 @@ def synthesize(req: TtsRequest) -> Response:
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    payload = {
-        "model": MODEL_REPO,
+    voice = req.voice.strip() or _active.default_voice or DEFAULT_VOICE
+    payload: dict[str, Any] = {
+        "model": _active.repo_id,
         "input": text,
-        "voice": req.voice or "default",
+        "voice": voice,
         "response_format": "wav",
-        "speed": req.speed,
     }
+    if req.speed != 1.0:
+        payload["speed"] = req.speed
     try:
         r = httpx.post(
             f"{_inner_base()}/v1/audio/speech",
@@ -146,7 +223,6 @@ def synthesize(req: TtsRequest) -> Response:
         )
         if r.status_code == 200:
             return Response(content=r.content, media_type="audio/wav")
-        # fallback: return JSON with base64 if API differs
         data = r.json()
         if "audio" in data:
             raw = base64.b64decode(data["audio"])
@@ -157,18 +233,15 @@ def synthesize(req: TtsRequest) -> Response:
 
 
 @app.post("/download")
-def download() -> dict[str, Any]:
+def download(req: DownloadRequest | None = None) -> dict[str, Any]:
     from huggingface_hub import snapshot_download
 
-    dest = tts_dir() / "higgs-tts-3-4b"
+    spec = get_model(req.model_id if req else DEFAULT_MODEL_ID)
+    dest = _local_model_path(spec.id)
     dest.mkdir(parents=True, exist_ok=True)
     try:
-        path = snapshot_download(
-            repo_id=MODEL_REPO,
-            local_dir=str(dest),
-            local_dir_use_symlinks=False,
-        )
-        return {"ok": True, "path": path}
+        path = snapshot_download(repo_id=spec.repo_id, local_dir=str(dest))
+        return {"ok": True, "model_id": spec.id, "path": path}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

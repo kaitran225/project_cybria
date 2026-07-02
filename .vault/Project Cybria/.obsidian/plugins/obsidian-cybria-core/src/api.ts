@@ -125,6 +125,35 @@ export class CybriaCoreApi {
 		return this.runner().isRunning();
 	}
 
+	async fetchGatewayHealth(): Promise<{
+		ready: boolean;
+		port: number;
+		services: Record<string, Record<string, unknown>>;
+	} | null> {
+		try {
+			const res = await fetch(`${this.baseUrl()}/health`);
+			if (!res.ok) return null;
+			return (await res.json()) as {
+				ready: boolean;
+				port: number;
+				services: Record<string, Record<string, unknown>>;
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	async startService(service: CybriaServiceKey): Promise<boolean> {
+		try {
+			const res = await fetch(`${this.baseUrl()}/services/${service}/start`, { method: "POST" });
+			if (!res.ok) return false;
+			const body = (await res.json()) as { ok?: boolean };
+			return !!body.ok;
+		} catch {
+			return false;
+		}
+	}
+
 	async stopService(service: CybriaServiceKey): Promise<void> {
 		try {
 			await fetch(`${this.baseUrl()}/services/${service}/stop`, { method: "POST" });

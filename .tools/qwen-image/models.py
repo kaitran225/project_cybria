@@ -56,6 +56,19 @@ def model_catalog() -> list[ModelSpec]:
             source="huggingface",
             note="SDXL from Hugging Face — first load downloads ~6GB",
         ),
+        ModelSpec(
+            id="nsfw-gen-v2",
+            name="UnfilteredAI NSFW-gen v2",
+            repo_id="UnfilteredAI/NSFW-gen-v2",
+            family="sdxl",
+            lightning=False,
+            default_steps=20,
+            default_cfg=6.0,
+            default_size=768,
+            max_side=768,
+            source="huggingface",
+            note="Lightweight SDXL test — first load downloads ~6GB",
+        ),
     ]
 
 

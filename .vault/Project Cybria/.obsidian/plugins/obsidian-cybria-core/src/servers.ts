@@ -7,6 +7,16 @@ export const GATEWAY_TOOLS = "cybria-server";
 export type CybriaServiceKey = "llm" | "summarize" | "tts" | "image";
 export type CybriaServerKey = CybriaServiceKey | "gateway";
 
+/** Primary model slot controlled from each service card on the Servers tab. */
+export type ServiceModelSlot = "llm" | "summarize" | "tts" | "image";
+
+export const SERVICE_SLOT: Record<CybriaServiceKey, ServiceModelSlot> = {
+	llm: "llm",
+	summarize: "summarize",
+	tts: "tts",
+	image: "image",
+};
+
 export const SERVICE_PATHS: Record<CybriaServiceKey, string> = {
 	llm: "/llm",
 	summarize: "/summarize",

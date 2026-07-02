@@ -38,6 +38,16 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		note: "Chat / agentic coding",
 	},
 	{
+		id: "qwen2.5-3b-instruct",
+		name: "Qwen2.5 3B (light)",
+		slot: "llm",
+		server: "llm",
+		vram: "light",
+		runnable: "yes",
+		sizeGb: 2,
+		note: "4GB-VRAM chat test",
+	},
+	{
 		id: "wanabi-novelist-12b",
 		name: "Wanabi Novelist 12B",
 		slot: "novel",
@@ -46,6 +56,16 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		runnable: "yes",
 		sizeGb: 7.6,
 		note: "Novel writing",
+	},
+	{
+		id: "ministral-3-3b-novel",
+		name: "Ministral 3 3B (light)",
+		slot: "novel",
+		server: "llm",
+		vram: "light",
+		runnable: "yes",
+		sizeGb: 2.15,
+		note: "Mistral 3B instruct — 4GB-VRAM novel",
 	},
 	{
 		id: "nqlsg-qwen3-14b-novel",
@@ -76,6 +96,16 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		sizeGb: 2.3,
 	},
 	{
+		id: "moss-tts-nano",
+		name: "MOSS-TTS-Nano",
+		slot: "tts",
+		server: "tts",
+		vram: "light",
+		runnable: "yes",
+		sizeGb: 0.4,
+		note: "0.1B — 4GB-VRAM / CPU friendly",
+	},
+	{
 		id: "higgs-tts-3-4b",
 		name: "Higgs TTS 3 4B",
 		slot: "tts",
@@ -83,7 +113,7 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		vram: "heavy",
 		runnable: "tight",
 		sizeGb: 5,
-		note: "Text-to-speech",
+		note: "Heavy — needs 6GB+ VRAM",
 	},
 	{
 		id: "qwen-lightning",
@@ -103,13 +133,23 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		runnable: "yes",
 		note: "SDXL image gen",
 	},
+	{
+		id: "nsfw-gen-v2",
+		name: "NSFW-gen v2 (test)",
+		slot: "image",
+		server: "image",
+		vram: "heavy",
+		runnable: "yes",
+		sizeGb: 6,
+		note: "Lightweight SDXL test",
+	},
 ];
 
 export const DEFAULT_ACTIVE_MODELS: Record<ModelSlot, string> = {
 	llm: "gemma-4-12b-agentic-gguf",
 	novel: "wanabi-novelist-12b",
 	summarize: "bart-large-cnn",
-	tts: "higgs-tts-3-4b",
+	tts: "moss-tts-nano",
 	image: "qwen-lightning",
 };
 

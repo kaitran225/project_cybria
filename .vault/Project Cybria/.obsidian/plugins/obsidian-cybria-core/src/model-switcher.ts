@@ -22,7 +22,7 @@ export interface SlotState {
 
 export type SwitcherListener = (slot: ModelSlot, state: SlotState) => void;
 
-const HEAVY_SERVICES: CybriaServiceKey[] = ["llm", "image", "tts"];
+const HEAVY_SERVICES: CybriaServiceKey[] = ["llm", "image"];
 
 export class ModelSwitcher {
 	private listeners = new Set<SwitcherListener>();
@@ -122,7 +122,7 @@ export class ModelSwitcher {
 				await this.api.summarize.loadModel(modelId, url);
 				break;
 			case "tts":
-				await this.api.tts.loadModel(url);
+				await this.api.tts.loadModel(modelId, url);
 				break;
 			case "image":
 				await this.api.image.loadModel(modelId, url);
@@ -264,7 +264,9 @@ export class ModelSwitcher {
 				} else if (service === "tts") {
 					const h = await this.api.tts.ping(url);
 					ready = !!h.ready;
+					loaded = h.model_id ?? this.getActive()[slot];
 					this.patch(slot, {
+						loadedModelId: loaded,
 						status: ready ? "ready" : "idle",
 						error: h.error ?? null,
 					});

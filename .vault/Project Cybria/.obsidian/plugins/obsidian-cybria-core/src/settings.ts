@@ -9,7 +9,7 @@ import { DEFAULT_NOVEL_SETTINGS, type NovelSettings } from "./apps/novel/setting
 import type { AppId } from "./apps/types";
 import type { OutputRecord } from "./apps/image/types";
 
-export type CoreViewTab = "dashboard" | "apps" | "models" | "servers";
+export type CoreViewTab = "dashboard" | "apps" | "servers";
 
 export interface CybriaCoreSettings {
 	activeModels: Record<ModelSlot, string>;

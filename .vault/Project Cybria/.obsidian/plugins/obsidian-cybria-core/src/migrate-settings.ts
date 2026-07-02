@@ -1,6 +1,27 @@
 import { App } from "obsidian";
 import type { CybriaCoreSettings } from "./settings";
 import { DEFAULT_SETTINGS } from "./settings";
+import { getCatalogModel } from "./catalog";
+
+const DEPRECATED_MODEL_IDS: Record<string, string> = {
+	"qwen2.5-3b-novel": "ministral-3-3b-novel",
+};
+
+function remapActiveModels(active: CybriaCoreSettings["activeModels"]): CybriaCoreSettings["activeModels"] {
+	const out = { ...active };
+	for (const slot of Object.keys(out) as (keyof typeof out)[]) {
+		const id = out[slot];
+		const replacement = DEPRECATED_MODEL_IDS[id];
+		if (replacement) {
+			out[slot] = replacement;
+			continue;
+		}
+		if (!getCatalogModel(id)) {
+			out[slot] = DEFAULT_SETTINGS.activeModels[slot];
+		}
+	}
+	return out;
+}
 
 async function readPluginData(app: App, pluginId: string): Promise<Record<string, unknown> | null> {
 	const base = app.vault.configDir;
@@ -21,13 +42,20 @@ export async function migrateSatelliteSettings(
 	const merged: CybriaCoreSettings = {
 		...DEFAULT_SETTINGS,
 		...current,
-		activeModels: { ...DEFAULT_SETTINGS.activeModels, ...(current.activeModels ?? {}) },
+		activeModels: remapActiveModels({
+			...DEFAULT_SETTINGS.activeModels,
+			...(current.activeModels ?? {}),
+		}),
 		llm: { ...DEFAULT_SETTINGS.llm, ...(current.llm ?? {}) },
 		novel: { ...DEFAULT_SETTINGS.novel, ...(current.novel ?? {}) },
 		audio: { ...DEFAULT_SETTINGS.audio, ...(current.audio ?? {}) },
 		image: { ...DEFAULT_SETTINGS.image, ...(current.image ?? {}) },
 		imageRecentOutputs: current.imageRecentOutputs ?? DEFAULT_SETTINGS.imageRecentOutputs,
 	};
+
+	if ((merged.activeViewTab as string) === "models") {
+		merged.activeViewTab = "servers";
+	}
 
 	if (current.migratedFromSatellites) return merged;
 
@@ -47,7 +75,9 @@ export async function migrateSatelliteSettings(
 	const audioData = await readPluginData(app, "cybria-audio");
 	if (audioData?.outputFolder) merged.audio.outputFolder = String(audioData.outputFolder);
 
-	const imageData = await readPluginData(app, "image-gen");
+	const imageData =
+		(await readPluginData(app, "image-gen")) ??
+		(await readPluginData(app, "obsidian-image-gen"));
 	if (imageData) {
 		const { recentOutputs, migratedFast512, ...rest } = imageData as Record<string, unknown>;
 		Object.assign(merged.image, rest);

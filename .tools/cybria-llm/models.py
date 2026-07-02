@@ -67,6 +67,28 @@ MODELS: list[ModelSpec] = [
         note="14B novel model. Try Q3_K_M if OOM.",
         gguf_glob="*Q4_K_M*.gguf",
     ),
+    ModelSpec(
+        id="qwen2.5-3b-instruct",
+        name="Qwen2.5 3B Instruct (light)",
+        repo_id="bartowski/Qwen2.5-3B-Instruct-GGUF",
+        category="llm",
+        recommended_quant="Q4_K_M",
+        size_gb=2.0,
+        runnable_local="yes",
+        note="Lightweight 4GB-VRAM chat test.",
+        gguf_glob="*Q4_K_M*.gguf",
+    ),
+    ModelSpec(
+        id="ministral-3-3b-novel",
+        name="Ministral 3 3B (light novel)",
+        repo_id="bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF",
+        category="llm",
+        recommended_quant="Q4_K_M",
+        size_gb=2.15,
+        runnable_local="yes",
+        note="Mistral 3B instruct — 4GB-VRAM novel test.",
+        gguf_glob="*Q4_K_M*.gguf",
+    ),
 ]
 
 DEFAULT_MODEL_ID = "gemma-4-12b-agentic-gguf"
