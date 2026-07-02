@@ -30,6 +30,11 @@ export class ModelSwitcherView extends ItemView {
 	private dashboardTabBtn!: HTMLButtonElement;
 	private appsTabBtn!: HTMLButtonElement;
 	private appsTabLabel!: HTMLElement;
+	private appsTabChevron!: HTMLElement;
+	private appPickerEl!: HTMLElement;
+	private appPickerBtns = new Map<AppId, HTMLButtonElement>();
+	private appPickerOpen = false;
+	private headerTitleEl!: HTMLElement;
 	private modelsTabBtn!: HTMLButtonElement;
 	private serversTabBtn!: HTMLButtonElement;
 	private unsubLog: (() => void) | null = null;
@@ -58,8 +63,12 @@ export class ModelSwitcherView extends ItemView {
 		this.applyTab(tab);
 		if (tab === "apps") {
 			this.appsHost?.showApp(appId ?? this.plugin.settings.activeAppTab);
+			if (appId) this.hideAppPicker();
+		} else {
+			this.hideAppPicker();
 		}
 		this.updateDynamicTabLabel();
+		this.updateAppHeader();
 	}
 
 	getAppsHost(): AppsHost {
@@ -73,21 +82,25 @@ export class ModelSwitcherView extends ItemView {
 
 		const header = root.createDiv("ccore-header");
 		const titleBlock = header.createDiv("ccore-header-text");
-		titleBlock.createDiv("ccore-header-title").setText("Cybria AI");
+		this.headerTitleEl = titleBlock.createDiv("ccore-header-title");
+		this.headerTitleEl.setText("Cybria AI");
 		this.statusEl = header.createDiv("ccore-status-wrap");
 		this.statusEl.createDiv("ccore-status-dot");
 		this.statusEl.createSpan({ cls: "ccore-status-text", text: "—" });
 
-		const tabs = root.createDiv("ccore-tabs");
+		const tabsWrap = root.createDiv("ccore-tabs-wrap");
+		const tabs = tabsWrap.createDiv("ccore-tabs");
 		this.dashboardTabBtn = tabs.createEl("button", { cls: "ccore-tab" });
 		setIcon(this.dashboardTabBtn.createSpan("ccore-tab-icon"), "layout-dashboard");
 		this.dashboardTabBtn.createSpan({ text: "Home", cls: "ccore-tab-label" });
 		this.dashboardTabBtn.onclick = () => this.showTab("dashboard");
 		this.appsTabBtn = tabs.createEl("button", { cls: "ccore-tab ccore-dynamic-tab" });
-		this.appsTabBtn.onclick = () => this.showTab("apps");
+		this.appsTabBtn.onclick = () => this.onDynamicTabClick();
 		const appsIcon = this.appsTabBtn.createSpan("ccore-tab-icon");
 		setIcon(appsIcon, "bot");
 		this.appsTabLabel = this.appsTabBtn.createSpan({ cls: "ccore-tab-label", text: "Chat" });
+		this.appsTabChevron = this.appsTabBtn.createSpan("ccore-tab-chevron");
+		setIcon(this.appsTabChevron, "chevron-down");
 		this.modelsTabBtn = tabs.createEl("button", { cls: "ccore-tab" });
 		setIcon(this.modelsTabBtn.createSpan("ccore-tab-icon"), "layers");
 		this.modelsTabBtn.createSpan({ text: "Models", cls: "ccore-tab-label" });
@@ -96,6 +109,18 @@ export class ModelSwitcherView extends ItemView {
 		this.serversTabBtn.createSpan({ text: "Servers", cls: "ccore-tab-label" });
 		this.modelsTabBtn.onclick = () => this.showTab("models");
 		this.serversTabBtn.onclick = () => this.showTab("servers");
+
+		this.appPickerEl = tabsWrap.createDiv("ccore-app-picker");
+		for (const def of APP_DEFS) {
+			const btn = this.appPickerEl.createEl("button", { cls: "ccore-app-picker-item" });
+			setIcon(btn.createSpan("ccore-app-picker-icon"), def.icon);
+			btn.createSpan({ text: def.title, cls: "ccore-app-picker-label" });
+			btn.onclick = () => {
+				this.showTab("apps", def.id);
+				this.hideAppPicker();
+			};
+			this.appPickerBtns.set(def.id, btn);
+		}
 
 		this.dashboardPane = new CybriaDashboardPane(this.plugin, (id) =>
 			this.showTab("apps", id)
@@ -108,6 +133,8 @@ export class ModelSwitcherView extends ItemView {
 			this.plugin.settings.activeAppTab = id;
 			void this.plugin.saveSettings();
 			this.updateDynamicTabLabel();
+			this.updateAppHeader();
+			this.syncAppPickerSelection();
 			this.dashboardPane?.render();
 		});
 		this.appsHost.build(root);
@@ -144,11 +171,14 @@ export class ModelSwitcherView extends ItemView {
 			this.appsHost.showApp(this.plugin.settings.activeAppTab);
 		}
 		this.updateDynamicTabLabel();
+		this.updateAppHeader();
+		this.syncAppPickerSelection();
 
 		this.plugin.api.switcher.onChange(() => {
 			this.renderSlots();
 			this.dashboardPane?.render();
 			this.appsHost?.refreshSubtabs();
+			this.updateAppHeader();
 		});
 		this.renderSlots();
 		void this.refresh();
@@ -158,6 +188,58 @@ export class ModelSwitcherView extends ItemView {
 		this.unsubLog?.();
 		this.unsubLog = null;
 		this.appsHost?.unmount();
+	}
+
+	private onDynamicTabClick(): void {
+		const onApps = this.plugin.settings.activeViewTab === "apps";
+		if (onApps) {
+			if (this.appPickerOpen) this.hideAppPicker();
+			else this.showAppPicker();
+			return;
+		}
+		this.showTab("apps");
+		this.showAppPicker();
+	}
+
+	private showAppPicker(): void {
+		if (!this.appPickerEl) return;
+		this.appPickerOpen = true;
+		this.appPickerEl.addClass("is-open");
+		this.appsTabBtn.addClass("is-picker-open");
+		this.syncAppPickerSelection();
+	}
+
+	private hideAppPicker(): void {
+		if (!this.appPickerEl) return;
+		this.appPickerOpen = false;
+		this.appPickerEl.removeClass("is-open");
+		this.appsTabBtn.removeClass("is-picker-open");
+	}
+
+	private syncAppPickerSelection(): void {
+		const active = this.plugin.settings.activeAppTab;
+		for (const [id, btn] of this.appPickerBtns) {
+			btn.toggleClass("is-active", id === active);
+		}
+	}
+
+	setPaneStatus(text: string, state: "ready" | "loading" | "offline" | "neutral" = "neutral"): void {
+		if (this.plugin.settings.activeViewTab !== "apps") return;
+		this.setStatusText(text, state);
+	}
+
+	private updateAppHeader(): void {
+		if (!this.headerTitleEl) return;
+		this.headerTitleEl.setText("Cybria AI");
+		const tab = this.plugin.settings.activeViewTab;
+		if (tab === "apps") {
+			const def = APP_DEFS.find((a) => a.id === this.plugin.settings.activeAppTab);
+			if (def) {
+				this.setStatusText(this.plugin.api.switcher.activeModelName(def.slot), "neutral");
+			}
+			return;
+		}
+		if (tab === "dashboard") this.updateGatewayHeader();
 	}
 
 	private applyTab(tab: CoreViewTab): void {
@@ -177,6 +259,7 @@ export class ModelSwitcherView extends ItemView {
 		this.terminalEl?.toggleClass("ccore-pane-hidden", !showTerminal);
 		if (tab === "dashboard") this.updateGatewayHeader();
 		else if (tab === "models") this.setStatusText("Models", "neutral");
+		this.updateAppHeader();
 	}
 
 	private updateDynamicTabLabel(): void {

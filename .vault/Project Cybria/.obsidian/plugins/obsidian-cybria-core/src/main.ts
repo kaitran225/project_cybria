@@ -191,7 +191,6 @@ export default class CybriaCorePlugin extends Plugin {
 	refreshImagePane(): void {
 		const pane = this.getSwitcherView()?.getAppsHost()?.getImagePane();
 		pane?.renderGenParams();
-		pane?.updateModelLabel();
 		pane?.renderLoraPicker();
 		pane?.renderOutput();
 	}

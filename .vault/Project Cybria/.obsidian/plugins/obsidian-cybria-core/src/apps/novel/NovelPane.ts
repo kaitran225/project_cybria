@@ -10,9 +10,7 @@ export class NovelPane implements AppPane {
 	private summarizeStatusEl!: HTMLElement;
 	private writeInputEl!: HTMLTextAreaElement;
 	private summarizeInputEl!: HTMLTextAreaElement;
-	private modelEl!: HTMLElement;
 	private activePane: "write" | "summarize" = "write";
-	private unsubSwitcher: (() => void) | null = null;
 
 	constructor(private readonly plugin: CybriaCorePlugin) {}
 
@@ -37,11 +35,6 @@ export class NovelPane implements AppPane {
 		this.root = root;
 		root.empty();
 		root.addClass("cnv-root");
-
-		const header = root.createDiv("cnv-header");
-		const titleBlock = header.createDiv("cnv-title-block");
-		titleBlock.createDiv("cnv-header-title").setText("Novel Studio");
-		this.modelEl = titleBlock.createSpan({ cls: "cnv-header-model" });
 
 		const tabs = root.createDiv("cnv-tabs");
 		const writeTab = tabs.createEl("button", { cls: "cnv-tab" });
@@ -69,35 +62,22 @@ export class NovelPane implements AppPane {
 				sumTab.addClass("is-active");
 				sumPane.removeClass("cnv-pane-hidden");
 			}
-			this.updateModelLabel();
 		};
 		this.showSubTab = show;
 		writeTab.onclick = () => show("write");
 		sumTab.onclick = () => show("summarize");
 		show(this.plugin.settings.novel.activeTab === "summarize" ? "summarize" : "write");
-
-		this.unsubSwitcher = this.plugin.api.switcher.onChange((slot) => {
-			if (slot === "novel" || slot === "summarize") this.updateModelLabel();
-		});
 	}
 
 	private showSubTab!: (which: "write" | "summarize") => void;
 
 	unmount(): void {
-		this.unsubSwitcher?.();
-		this.unsubSwitcher = null;
 		this.root?.empty();
 		this.root = null;
 	}
 
 	onShow(): void {
-		this.updateModelLabel();
-	}
-
-	private updateModelLabel(): void {
-		if (!this.modelEl) return;
-		const slot = this.activePane === "write" ? "novel" : "summarize";
-		this.modelEl.setText(this.plugin.api.switcher.activeModelName(slot));
+		/* model shown in core header */
 	}
 
 	private buildWritePane(el: HTMLElement): void {

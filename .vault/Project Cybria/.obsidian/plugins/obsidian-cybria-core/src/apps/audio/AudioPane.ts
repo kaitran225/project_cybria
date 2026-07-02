@@ -5,9 +5,6 @@ import type { AppPane } from "../types";
 export class AudioPane implements AppPane {
 	private root: HTMLElement | null = null;
 	private inputEl!: HTMLTextAreaElement;
-	private statusEl!: HTMLElement;
-	private statusDotEl!: HTMLElement;
-	private modelEl!: HTMLElement;
 	private playerEl!: HTMLElement;
 	private lastAudioUrl: string | null = null;
 	private unsubSwitcher: (() => void) | null = null;
@@ -22,14 +19,6 @@ export class AudioPane implements AppPane {
 		this.root = root;
 		root.empty();
 		root.addClass("caud-root");
-
-		const header = root.createDiv("caud-header");
-		const titleBlock = header.createDiv("caud-title-block");
-		titleBlock.createDiv("caud-header-title").setText("Text to Speech");
-		this.modelEl = titleBlock.createSpan({ cls: "caud-header-model" });
-		const statusWrap = header.createDiv("caud-status-wrap");
-		this.statusDotEl = statusWrap.createDiv("caud-status-dot");
-		this.statusEl = statusWrap.createSpan("caud-status-text");
 
 		const scriptCard = root.createDiv("caud-card");
 		scriptCard.createSpan({ cls: "caud-card-label", text: "Script" });
@@ -53,8 +42,8 @@ export class AudioPane implements AppPane {
 		setIcon(emptyHint.createSpan("caud-player-empty-icon"), "headphones");
 		emptyHint.createSpan({ text: "Generated audio appears here", cls: "caud-player-empty-text" });
 
-		this.unsubSwitcher = this.plugin.api.switcher.onChange((slot) => {
-			if (slot === "tts") this.updateModelLabel();
+		this.unsubSwitcher = this.plugin.api.switcher.onChange(() => {
+			void this.refreshStatus();
 		});
 		this.onShow();
 	}
@@ -69,7 +58,6 @@ export class AudioPane implements AppPane {
 	}
 
 	onShow(): void {
-		this.updateModelLabel();
 		void this.refreshStatus();
 	}
 
@@ -77,24 +65,18 @@ export class AudioPane implements AppPane {
 		return this.plugin.api.serverUrl("tts");
 	}
 
-	private updateModelLabel(): void {
-		if (!this.modelEl) return;
-		this.modelEl.setText(this.plugin.api.switcher.activeModelName("tts"));
-	}
-
 	private setStatus(state: "ready" | "loading" | "offline", text: string): void {
-		this.statusDotEl?.removeClass("is-ready", "is-loading", "is-offline");
-		this.statusDotEl?.addClass(`is-${state}`);
-		this.statusEl?.setText(text);
+		this.plugin.getSwitcherView()?.setPaneStatus(text, state);
 	}
 
 	private async refreshStatus(): Promise<void> {
+		const model = this.plugin.api.switcher.activeModelName("tts");
 		try {
 			const h = await this.plugin.api.tts.ping(this.ttsUrl());
-			if (h.ready) this.setStatus("ready", "TTS ready");
-			else this.setStatus("loading", h.error ? String(h.error) : "Not ready");
+			if (h.ready) this.setStatus("ready", `${model} · Ready`);
+			else this.setStatus("loading", h.error ? String(h.error) : `${model} · Not ready`);
 		} catch {
-			this.setStatus("offline", "Offline");
+			this.setStatus("offline", `${model} · Offline`);
 		}
 	}
 

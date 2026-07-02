@@ -1,16 +1,13 @@
-import { setIcon } from "obsidian";
 import type CybriaCorePlugin from "../main";
 import { AudioPane } from "./audio/AudioPane";
 import { ImageGenPane } from "./image/ImageGenPane";
 import { LlmPane } from "./llm/LlmPane";
 import { NovelPane } from "./novel/NovelPane";
-import { APP_DEFS, type AppId, type AppPane } from "./types";
+import { type AppId, type AppPane } from "./types";
 
 export class AppsHost {
 	private root: HTMLElement | null = null;
 	private hostEl!: HTMLElement;
-	private subtabsEl!: HTMLElement;
-	private subtabBtns = new Map<AppId, HTMLButtonElement>();
 	private panes = new Map<AppId, AppPane>();
 	private activeId: AppId | null = null;
 	private onAppChange: ((id: AppId) => void) | null = null;
@@ -45,16 +42,6 @@ export class AppsHost {
 	build(parent: HTMLElement): HTMLElement {
 		const pane = parent.createDiv("ccore-pane ccore-apps-pane ccore-pane-hidden");
 		this.root = pane;
-
-		this.subtabsEl = pane.createDiv("ccore-app-subtabs");
-		for (const def of APP_DEFS) {
-			const btn = this.subtabsEl.createEl("button", { cls: "ccore-app-subtab" });
-			setIcon(btn.createSpan("ccore-app-subtab-icon"), def.icon);
-			btn.createSpan({ text: def.title, cls: "ccore-app-subtab-label" });
-			btn.onclick = () => this.showApp(def.id);
-			this.subtabBtns.set(def.id, btn);
-		}
-
 		this.hostEl = pane.createDiv("ccore-apps-host");
 		return pane;
 	}
@@ -72,13 +59,8 @@ export class AppsHost {
 		this.plugin.settings.activeAppTab = id;
 		void this.plugin.saveSettings();
 
-		for (const [appId, btn] of this.subtabBtns) {
-			btn.toggleClass("is-active", appId === id);
-		}
-
 		this.hostEl.empty();
-		const pane = this.panes.get(id);
-		pane?.mount(this.hostEl);
+		this.panes.get(id)?.mount(this.hostEl);
 		this.onAppChange?.(id);
 	}
 

@@ -40,7 +40,6 @@ export class ImageGenPane implements AppPane {
 	private loraScaleInput!: HTMLInputElement;
 	private loraScaleWrap!: HTMLElement;
 	private negativeInput!: HTMLTextAreaElement;
-	private modelEl!: HTMLElement;
 	private modelCatalog: ModelInfo[] = [];
 	private loraSectionEl!: HTMLElement;
 	private loraEl!: HTMLElement;
@@ -66,11 +65,6 @@ export class ImageGenPane implements AppPane {
 
 		const scroll = host.createDiv({ cls: "ig-scroll" });
 		this.scrollEl = scroll;
-
-		const header = scroll.createDiv({ cls: "ig-header" });
-		const titleBlock = header.createDiv("ig-title-block");
-		titleBlock.createDiv({ cls: "ig-header-title", text: "Image Gen" });
-		this.modelEl = titleBlock.createSpan({ cls: "ig-header-model" });
 
 		// --- Output (header-less hero preview) ---
 		const outputEl = scroll.createDiv({ cls: "ig-output" });
@@ -150,7 +144,6 @@ export class ImageGenPane implements AppPane {
 
 		// --- Init ---
 		this.syncParamsControls();
-		this.updateModelLabel();
 		this.updatePromptCount();
 		this.updateLoraSectionVisibility();
 
@@ -211,7 +204,6 @@ export class ImageGenPane implements AppPane {
 
 	onShow(): void {
 		void this.checkHealth(false);
-		this.updateModelLabel();
 	}
 
 	private imageUrl(): string {
@@ -432,17 +424,6 @@ export class ImageGenPane implements AppPane {
 			this.renderGenParams();
 		} catch {
 			this.modelCatalog = [];
-			this.updateModelLabel();
-		}
-	}
-
-	updateModelLabel(): void {
-		if (!this.modelEl) return;
-		try {
-			this.modelEl.setText(this.plugin.api.switcher.activeModelName("image"));
-		} catch {
-			const spec = this.currentModelSpec();
-			this.modelEl.setText(spec?.name ?? DEFAULT_MODEL_LABEL);
 		}
 	}
 
@@ -467,7 +448,6 @@ export class ImageGenPane implements AppPane {
 			this.renderGenParams();
 			await this.refreshLoras(false);
 		}
-		this.updateModelLabel();
 		this.updateLoraSectionVisibility();
 	}
 

@@ -9,9 +9,6 @@ export class LlmPane implements AppPane {
 	private chatEl!: HTMLElement;
 	private emptyEl!: HTMLElement;
 	private inputEl!: HTMLTextAreaElement;
-	private statusEl!: HTMLElement;
-	private statusDotEl!: HTMLElement;
-	private modelEl!: HTMLElement;
 	private sendBtn!: HTMLButtonElement;
 	private stopBtn!: HTMLButtonElement;
 	private abortController: AbortController | null = null;
@@ -29,21 +26,6 @@ export class LlmPane implements AppPane {
 		root.empty();
 		root.addClass("cllm-root");
 
-		const header = root.createDiv("cllm-header");
-		const titleRow = header.createDiv("cllm-header-row");
-		const titleBlock = titleRow.createDiv("cllm-title-block");
-		titleBlock.createDiv("cllm-header-title").setText("Chat");
-		this.modelEl = titleBlock.createSpan({ cls: "cllm-header-model" });
-		const statusWrap = titleRow.createDiv("cllm-status-wrap");
-		this.statusDotEl = statusWrap.createDiv("cllm-status-dot");
-		this.statusEl = statusWrap.createSpan("cllm-status-text");
-		const clearBtn = header.createEl("button", {
-			cls: "cllm-icon-btn",
-			attr: { "aria-label": "Clear chat" },
-		});
-		setIcon(clearBtn, "trash-2");
-		clearBtn.onclick = () => this.clearChat();
-
 		const chatWrap = root.createDiv("cllm-chat-wrap");
 		this.chatEl = chatWrap.createDiv("cllm-chat");
 		this.emptyEl = chatWrap.createDiv("cllm-empty");
@@ -58,6 +40,12 @@ export class LlmPane implements AppPane {
 			attr: { placeholder: "Message…", rows: "1" },
 		});
 		const btnRow = composer.createDiv("cllm-composer-actions");
+		const clearBtn = btnRow.createEl("button", {
+			cls: "cllm-icon-btn cllm-clear-btn",
+			attr: { "aria-label": "Clear chat" },
+		});
+		setIcon(clearBtn, "trash-2");
+		clearBtn.onclick = () => this.clearChat();
 		this.stopBtn = btnRow.createEl("button", { cls: "cllm-stop-btn", text: "Stop" });
 		this.stopBtn.addClass("is-hidden");
 		this.stopBtn.onclick = () => this.abortController?.abort();
@@ -74,7 +62,7 @@ export class LlmPane implements AppPane {
 		this.inputEl.addEventListener("input", () => this.autoResizeInput());
 
 		this.unsubSwitcher = this.plugin.api.switcher.onChange((slot) => {
-			if (slot === "llm") this.updateModelLabel();
+			if (slot === "llm") void this.refreshHealth();
 		});
 		this.onShow();
 	}
@@ -88,7 +76,6 @@ export class LlmPane implements AppPane {
 	}
 
 	onShow(): void {
-		this.updateModelLabel();
 		void this.refreshHealth();
 	}
 
@@ -98,11 +85,6 @@ export class LlmPane implements AppPane {
 
 	private activeModelId(): string {
 		return this.plugin.api.switcher.getActiveModel("llm");
-	}
-
-	private updateModelLabel(): void {
-		if (!this.modelEl) return;
-		this.modelEl.setText(this.plugin.api.switcher.activeModelName("llm"));
 	}
 
 	private autoResizeInput(): void {
@@ -132,28 +114,16 @@ export class LlmPane implements AppPane {
 	}
 
 	private async refreshHealth(): Promise<void> {
-		if (!this.statusEl) return;
+		const view = this.plugin.getSwitcherView();
+		const model = this.plugin.api.switcher.activeModelName("llm");
 		try {
 			const h = await this.plugin.api.llm.ping(this.llmUrl());
-			const ready = !!h.ready;
-			const loading = !!h.loading;
-			this.statusDotEl?.removeClass("is-ready", "is-loading", "is-offline");
-			if (ready) {
-				this.statusDotEl?.addClass("is-ready");
-				this.statusEl.setText("Ready");
-			} else if (loading) {
-				this.statusDotEl?.addClass("is-loading");
-				this.statusEl.setText("Loading…");
-			} else {
-				this.statusDotEl?.addClass("is-offline");
-				this.statusEl.setText(h.error ? String(h.error) : "Not ready");
-			}
+			if (h.ready) view?.setPaneStatus(`${model} · Ready`, "ready");
+			else if (h.loading) view?.setPaneStatus(`${model} · Loading…`, "loading");
+			else view?.setPaneStatus(h.error ? String(h.error) : `${model} · Not ready`, "offline");
 		} catch {
-			this.statusDotEl?.removeClass("is-ready", "is-loading");
-			this.statusDotEl?.addClass("is-offline");
-			this.statusEl.setText("Offline");
+			view?.setPaneStatus(`${model} · Offline`, "offline");
 		}
-		this.updateModelLabel();
 	}
 
 	private appendBubble(role: "user" | "assistant", content: string): HTMLElement {
