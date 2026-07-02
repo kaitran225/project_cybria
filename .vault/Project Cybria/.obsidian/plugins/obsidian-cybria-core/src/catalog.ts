@@ -116,12 +116,22 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		note: "Heavy — needs 6GB+ VRAM",
 	},
 	{
+		id: "dreamshaper-8",
+		name: "DreamShaper 8 (SD1.5)",
+		slot: "image",
+		server: "image",
+		vram: "light",
+		runnable: "yes",
+		sizeGb: 2,
+		note: "Lightweight SD1.5 — fast on 4GB, uncensored",
+	},
+	{
 		id: "qwen-lightning",
 		name: "Qwen Image Lightning",
 		slot: "image",
 		server: "image",
 		vram: "heavy",
-		runnable: "yes",
+		runnable: "tight",
 		note: "Fast image gen — 8GB tuned",
 	},
 	{
@@ -130,8 +140,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		slot: "image",
 		server: "image",
 		vram: "heavy",
-		runnable: "yes",
-		note: "SDXL image gen",
+		runnable: "tight",
+		note: "SDXL — slow on 4GB (6GB+ VRAM)",
 	},
 	{
 		id: "nsfw-gen-v2",
@@ -139,9 +149,9 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		slot: "image",
 		server: "image",
 		vram: "heavy",
-		runnable: "yes",
+		runnable: "tight",
 		sizeGb: 6,
-		note: "Lightweight SDXL test",
+		note: "SDXL — slow on 4GB (6GB+ VRAM)",
 	},
 ];
 
@@ -150,7 +160,7 @@ export const DEFAULT_ACTIVE_MODELS: Record<ModelSlot, string> = {
 	novel: "wanabi-novelist-12b",
 	summarize: "bart-large-cnn",
 	tts: "moss-tts-nano",
-	image: "qwen-lightning",
+	image: "dreamshaper-8",
 };
 
 export const SLOT_LABELS: Record<ModelSlot, string> = {

@@ -47,7 +47,7 @@ function classifyLine(raw: string, isStderr: boolean): LineKind {
 	if (line.startsWith("  cwd:") || line.startsWith("  pid:")) return "meta";
 	if (line.startsWith("[exit ")) return line.startsWith("[exit 0]") ? "ok" : "err";
 	if (line.startsWith("[download]")) return /error/i.test(line) ? "err" : "ok";
-	if (/\[generate\]/.test(line)) return "info";
+	if (/\[(?:load|generate)\]/.test(line)) return "info";
 	if (PROGRESS_RE.test(line) || line.includes("[A") || line.includes("it/s]")) return "progress";
 	if (isStderr) {
 		if (/^INFO:/i.test(line)) return "stderr-info";

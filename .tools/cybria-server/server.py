@@ -127,24 +127,39 @@ def _service_runtime_env() -> dict[str, str]:
 
 
 def _drain_service_logs(name: str, proc: subprocess.Popen[Any]) -> None:
-    """Read child output char-by-char so tqdm '\\r' progress bars are emitted live."""
+    """Read child output char-by-char so tqdm '\\r' progress bars are emitted live.
+
+    Progress-style lines (from '\\r' repaint or containing a tqdm bar) are throttled
+    to ~1/sec and de-duplicated so a slow download can't flood the terminal.
+    """
     stream = proc.stdout
     if stream is None:
         return
     buf: list[str] = []
-    last_progress = 0.0
+    last_progress_emit = 0.0
+    last_progress_text = ""
 
-    def _emit(seg: str, is_progress: bool) -> None:
-        nonlocal last_progress
+    def _is_progress(line: str, from_cr: bool) -> bool:
+        if from_cr:
+            return True
+        return "%|" in line or line.endswith("B/s]") or line.endswith("it/s]")
+
+    def _emit(seg: str, from_cr: bool) -> None:
+        nonlocal last_progress_emit, last_progress_text
         line = seg.rstrip("\r\n")
         if not line:
             return
-        if is_progress:
+        if _is_progress(line, from_cr):
             now = time.time()
-            done = "100%" in line or line.endswith("]")
-            if not done and now - last_progress < 0.5:
-                return
-            last_progress = now
+            done = "100%" in line
+            # collapse consecutive identical frames and rate-limit repaints
+            if not done:
+                if line == last_progress_text:
+                    return
+                if now - last_progress_emit < 1.0:
+                    return
+            last_progress_emit = now
+            last_progress_text = line
         print(f"[{name}] {line}", flush=True)
 
     try:

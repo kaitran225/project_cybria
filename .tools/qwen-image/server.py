@@ -18,9 +18,47 @@ from model_paths import apply_huggingface_env, ensure_model_dirs
 ensure_model_dirs()
 apply_huggingface_env()
 
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
+os.environ["TQDM_DISABLE"] = "0"
+try:
+    from huggingface_hub.utils import enable_progress_bars
+
+    enable_progress_bars()
+except Exception:
+    pass
+
 import torch
 import uvicorn
-from diffusers import DiffusionPipeline, StableDiffusionXLPipeline
+from diffusers import (
+    DiffusionPipeline,
+    StableDiffusionPipeline,
+    StableDiffusionXLPipeline,
+)
+
+# Surface the raw INFO-level load logs (per-component / per-weight-file) that
+# diffusers & transformers hide by default at WARNING verbosity. We bump their
+# verbosity to INFO, drop their own handlers, and route every library log
+# through a single flushed stdout handler so nothing is buffered or swallowed.
+import logging as _logging
+import sys as _sys
+
+for _mod in ("diffusers.utils", "transformers.utils"):
+    try:
+        _liblog = __import__(_mod, fromlist=["logging"]).logging
+        _liblog.set_verbosity_info()
+        _liblog.disable_default_handler()
+        _liblog.enable_progress_bar()
+    except Exception:
+        pass
+
+_raw_handler = _logging.StreamHandler(_sys.stdout)
+_raw_handler.setLevel(_logging.INFO)
+_raw_handler.setFormatter(_logging.Formatter("%(name)s: %(message)s"))
+for _lib in ("diffusers", "transformers", "huggingface_hub", "accelerate", "safetensors"):
+    _lg = _logging.getLogger(_lib)
+    _lg.setLevel(_logging.INFO)
+    _lg.addHandler(_raw_handler)
+    _lg.propagate = False
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -115,6 +153,157 @@ class LoadModelBody(BaseModel):
 
 def _log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:.1f}{unit}"
+        n /= 1024
+    return f"{n:.1f}TB"
+
+
+def _run_with_heartbeat(label: str, fn: Any) -> Any:
+    """Run blocking load work on a worker thread; log elapsed time every 5s."""
+    result: list[Any] = []
+    error: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            result.append(fn())
+        except BaseException as exc:
+            error.append(exc)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t0 = time.time()
+    while t.is_alive():
+        t.join(timeout=5.0)
+        if t.is_alive():
+            elapsed = time.time() - t0
+            hint = " (heavy model on low VRAM — this can take a few minutes)" if elapsed >= 20 else ""
+            _log(f"[load] {label} — still working, {elapsed:.0f}s{hint}")
+    if error:
+        raise error[0]
+    return result[0]
+
+
+def _load_logged(label: str, fn: Any, *, heartbeat: bool = False) -> Any:
+    """Run one pipeline component load with explicit start/finish logs."""
+    _log(f"[load] → {label}")
+    t0 = time.time()
+    out = _run_with_heartbeat(label, fn) if heartbeat else fn()
+    _log(f"[load] ✓ {label} ({time.time() - t0:.1f}s)")
+    return out
+
+
+def _load_scheduler(repo_id: str) -> Any:
+    """Load scheduler using the class named in scheduler/config.json."""
+    import json
+
+    from huggingface_hub import hf_hub_download
+
+    from diffusers import schedulers as diffusers_schedulers
+
+    def _build() -> Any:
+        cfg_path = hf_hub_download(repo_id, "scheduler/config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cls_name = cfg.get("_class_name", "EulerDiscreteScheduler")
+        cls = getattr(diffusers_schedulers, cls_name)
+        return cls.from_pretrained(repo_id, subfolder="scheduler")
+
+    return _load_logged("scheduler", _build)
+
+
+def _build_sdxl_pipeline(repo_id: str, dtype: torch.dtype, variant: str | None) -> Any:
+    from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
+
+    from diffusers import AutoencoderKL, UNet2DConditionModel
+
+    base = dict(torch_dtype=dtype, use_safetensors=True)
+    var = {**base, "variant": variant} if variant else base
+
+    tokenizer = _load_logged(
+        "tokenizer", lambda: CLIPTokenizer.from_pretrained(repo_id, subfolder="tokenizer")
+    )
+    tokenizer_2 = _load_logged(
+        "tokenizer_2", lambda: CLIPTokenizer.from_pretrained(repo_id, subfolder="tokenizer_2")
+    )
+    text_encoder = _load_logged(
+        "text_encoder",
+        lambda: CLIPTextModel.from_pretrained(repo_id, subfolder="text_encoder", **base),
+        heartbeat=True,
+    )
+    text_encoder_2 = _load_logged(
+        "text_encoder_2",
+        lambda: CLIPTextModelWithProjection.from_pretrained(
+            repo_id, subfolder="text_encoder_2", **base
+        ),
+        heartbeat=True,
+    )
+    unet = _load_logged(
+        "unet",
+        lambda: UNet2DConditionModel.from_pretrained(repo_id, subfolder="unet", **var),
+        heartbeat=True,
+    )
+    vae = _load_logged(
+        "vae",
+        lambda: AutoencoderKL.from_pretrained(repo_id, subfolder="vae", **var),
+        heartbeat=True,
+    )
+    scheduler = _load_scheduler(repo_id)
+
+    _log("[load] assembling SDXL pipeline")
+    return StableDiffusionXLPipeline(
+        vae=vae,
+        text_encoder=text_encoder,
+        text_encoder_2=text_encoder_2,
+        tokenizer=tokenizer,
+        tokenizer_2=tokenizer_2,
+        unet=unet,
+        scheduler=scheduler,
+    )
+
+
+def _build_sd15_pipeline(repo_id: str, dtype: torch.dtype, variant: str | None) -> Any:
+    from transformers import CLIPTextModel, CLIPTokenizer
+
+    from diffusers import AutoencoderKL, UNet2DConditionModel
+
+    base = dict(torch_dtype=dtype, use_safetensors=True)
+    var = {**base, "variant": variant} if variant else base
+
+    tokenizer = _load_logged(
+        "tokenizer", lambda: CLIPTokenizer.from_pretrained(repo_id, subfolder="tokenizer")
+    )
+    text_encoder = _load_logged(
+        "text_encoder",
+        lambda: CLIPTextModel.from_pretrained(repo_id, subfolder="text_encoder", **var),
+        heartbeat=True,
+    )
+    unet = _load_logged(
+        "unet",
+        lambda: UNet2DConditionModel.from_pretrained(repo_id, subfolder="unet", **var),
+        heartbeat=True,
+    )
+    vae = _load_logged(
+        "vae",
+        lambda: AutoencoderKL.from_pretrained(repo_id, subfolder="vae", **var),
+        heartbeat=True,
+    )
+    scheduler = _load_scheduler(repo_id)
+
+    _log("[load] assembling SD1.5 pipeline")
+    return StableDiffusionPipeline(
+        vae=vae,
+        text_encoder=text_encoder,
+        tokenizer=tokenizer,
+        unet=unet,
+        scheduler=scheduler,
+        safety_checker=None,
+        requires_safety_checker=False,
+    )
 
 
 def _apply_cuda_runtime() -> None:
@@ -328,11 +517,15 @@ def _configure_adapters(
 def _load_qwen(spec: ModelSpec) -> Any:
     global _offload_mode, _active_style_lora
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    loader = _QwenPipeline if _QwenPipeline is not DiffusionPipeline else DiffusionPipeline
     vram = _gpu_mem_gb()
     _log(f"[load] qwen {spec.repo_id} cuda={torch.cuda.is_available()} vram={vram:.1f}GB")
-    _log(f"[load] fetching + loading weights for {spec.id}…")
-    pipe = loader.from_pretrained(spec.repo_id, torch_dtype=dtype)
+
+    def _build() -> Any:
+        _log(f"[load] fetching qwen components for {spec.id}…")
+        loader = _QwenPipeline if _QwenPipeline is not DiffusionPipeline else DiffusionPipeline
+        return loader.from_pretrained(spec.repo_id, torch_dtype=dtype)
+
+    pipe = _run_with_heartbeat(f"loading {spec.id}", _build)
     _log(f"[load] weights ready for {spec.id}")
 
     if torch.cuda.is_available():
@@ -366,17 +559,70 @@ def _load_sdxl(spec: ModelSpec) -> Any:
     global _offload_mode, _active_style_lora, _lightning_loaded
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     _log(f"[load] sdxl {spec.repo_id} cuda={torch.cuda.is_available()}")
-    _log(f"[load] fetching + loading weights for {spec.id} (first run downloads ~6GB)…")
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        spec.repo_id,
-        torch_dtype=dtype,
-        use_safetensors=True,
-    )
+
+    def _build() -> Any:
+        for variant in ("fp16", None):
+            try:
+                _log(
+                    f"[load] fetching SDXL components for {spec.id}"
+                    + (f" (variant={variant})" if variant else " (default precision)")
+                )
+                return _build_sdxl_pipeline(spec.repo_id, dtype, variant)
+            except Exception as exc:
+                if variant is None:
+                    raise
+                _log(f"[load] no fp16 variant ({exc}); trying default precision")
+        raise RuntimeError("unreachable")
+
+    pipe = _build()
     _log(f"[load] weights ready for {spec.id}")
     if torch.cuda.is_available():
         pipe.enable_model_cpu_offload()
         _offload_mode = "cpu_offload"
         _log("[load] SDXL CPU offload")
+    else:
+        pipe.to("cpu")
+        _offload_mode = "cpu"
+    _apply_memory_opts(pipe)
+    _active_style_lora = None
+    _lightning_loaded = False
+    return pipe
+
+
+def _load_sd15(spec: ModelSpec) -> Any:
+    global _offload_mode, _active_style_lora, _lightning_loaded
+    cuda = torch.cuda.is_available()
+    dtype = torch.float16 if cuda else torch.float32
+    _log(f"[load] sd15 {spec.repo_id} cuda={cuda}")
+
+    def _build() -> Any:
+        for variant in ("fp16", None):
+            try:
+                _log(
+                    f"[load] fetching SD1.5 weights for {spec.id}"
+                    + (f" (variant={variant})" if variant else " (default precision)")
+                )
+                return _build_sd15_pipeline(spec.repo_id, dtype, variant)
+            except Exception as exc:
+                if variant is None:
+                    raise
+                _log(f"[load] no fp16 variant ({exc}); trying default precision")
+        raise RuntimeError("unreachable")
+
+    pipe = _build()
+    _log(f"[load] weights ready for {spec.id}")
+    if cuda:
+        # SD1.5 (~2GB fp16) fits a 4GB GPU directly — full GPU is fastest.
+        try:
+            pipe.to("cuda")
+            _offload_mode = "full_gpu"
+            _log("[load] SD1.5 on GPU (full)")
+        except torch.cuda.OutOfMemoryError:
+            _clear_cuda()
+            pipe.enable_model_cpu_offload()
+            _offload_mode = "cpu_offload"
+            _log("[load] SD1.5 CPU offload (low VRAM fallback)")
+        pipe.enable_attention_slicing()
     else:
         pipe.to("cpu")
         _offload_mode = "cpu"
@@ -413,6 +659,8 @@ def _load_pipeline(model_id: str | None = None) -> Any:
             pipe = _load_qwen(spec)
         elif spec.family == "sdxl":
             pipe = _load_sdxl(spec)
+        elif spec.family == "sd15":
+            pipe = _load_sd15(spec)
         else:
             raise RuntimeError(f"Unsupported model family: {spec.family}")
 
@@ -450,7 +698,7 @@ def _run_inference(pipe: Any, spec: ModelSpec, kwargs: dict[str, Any], progress:
     if progress is not None:
         kwargs = dict(kwargs)
         kwargs["callback_on_step_end"] = progress
-    if spec.family == "sdxl":
+    if spec.family in ("sdxl", "sd15"):
         kwargs = dict(kwargs)
         cfg = kwargs.pop("true_cfg_scale", kwargs.get("guidance_scale", 7.5))
         kwargs["guidance_scale"] = cfg

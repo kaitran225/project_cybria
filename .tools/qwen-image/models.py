@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict, dataclass
 
-DEFAULT_MODEL_ID = os.environ.get("QWEN_DEFAULT_MODEL", "qwen-lightning")
+DEFAULT_MODEL_ID = os.environ.get("QWEN_DEFAULT_MODEL", "dreamshaper-8")
 QWEN_REPO = os.environ.get(
     "QWEN_IMAGE_MODEL", "unsloth/Qwen-Image-2512-unsloth-bnb-4bit"
 )
@@ -31,6 +31,19 @@ class ModelSpec:
 
 def model_catalog() -> list[ModelSpec]:
     return [
+        ModelSpec(
+            id="dreamshaper-8",
+            name="DreamShaper 8 (SD1.5)",
+            repo_id="Lykon/dreamshaper-8",
+            family="sd15",
+            lightning=False,
+            default_steps=25,
+            default_cfg=7.0,
+            default_size=512,
+            max_side=768,
+            source="huggingface",
+            note="Lightweight SD1.5 — fast on 4GB VRAM, uncensored (~2GB)",
+        ),
         ModelSpec(
             id="qwen-lightning",
             name="Qwen Image (Lightning)",
