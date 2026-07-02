@@ -1,6 +1,7 @@
-import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { Menu, Notice, TFile, setIcon } from "obsidian";
 import { fetchLoras, fetchModels, pingServer } from "./client";
-import type ImageGenPlugin from "./main";
+import type CybriaCorePlugin from "../../main";
+import type { AppPane } from "../types";
 import { modelsForPicker, modelSupportsLora, type ModelInfo } from "./models";
 import {
 	ASPECT_PRESETS,
@@ -12,11 +13,7 @@ import {
 import { DEFAULT_MODEL_LABEL } from "./settings";
 import { LORA_NONE, type LoraInfo } from "./loras";
 
-export const VIEW_TYPE_IMAGE_GEN = "image-gen-view";
-
-type TabId = "generate";
-
-export class ImageGenView extends ItemView {
+export class ImageGenPane implements AppPane {
 	private prompt = "";
 	private busy = false;
 	private healthTimer = 0;
@@ -49,33 +46,21 @@ export class ImageGenView extends ItemView {
 	private loraEl!: HTMLElement;
 	private loraHintEl!: HTMLElement;
 	private loraCatalog: LoraInfo[] = [];
+	private root: HTMLElement | null = null;
 	private unsubSwitcher: (() => void) | null = null;
 
-	constructor(leaf: WorkspaceLeaf, private plugin: ImageGenPlugin) {
-		super(leaf);
-	}
-
-	getViewType(): string {
-		return VIEW_TYPE_IMAGE_GEN;
-	}
-
-	getDisplayText(): string {
-		return "Image Gen";
-	}
-
-	getIcon(): string {
-		return "image";
-	}
+	constructor(private readonly plugin: CybriaCorePlugin) {}
 
 	setPrompt(text: string): void {
 		this.prompt = text;
 		if (this.promptArea) this.promptArea.value = text;
 		this.updatePromptCount();
-		this.switchTab("generate");
+		
 	}
 
-	async onOpen(): Promise<void> {
-		const host = this.contentEl;
+	mount(root: HTMLElement): void {
+		this.root = root;
+		const host = root;
 		host.empty();
 		host.addClass("image-gen-view");
 
@@ -152,7 +137,7 @@ export class ImageGenView extends ItemView {
 		this.loraEl = loraBody.createDiv({ cls: "image-gen-lora-grid" });
 		const loraScaleRow = loraBody.createDiv({ cls: "image-gen-lora-scale-row" });
 		this.loraScaleInput = this.addNumberField(loraScaleRow, "Strength", (v) => {
-			this.plugin.settings.loraScale = Math.max(0, Math.min(2, v));
+			this.plugin.settings.image.loraScale = Math.max(0, Math.min(2, v));
 			void this.saveParams();
 		}, true);
 		this.loraScaleWrap = this.loraScaleInput.parentElement as HTMLElement;
@@ -170,7 +155,7 @@ export class ImageGenView extends ItemView {
 		this.updateLoraSectionVisibility();
 
 		try {
-			this.unsubSwitcher = this.plugin.getCore().switcher.onChange((slot) => {
+			this.unsubSwitcher = this.plugin.api.switcher.onChange((slot) => {
 				if (slot === "image") void this.applyModelFromCore();
 			});
 		} catch {
@@ -214,21 +199,23 @@ export class ImageGenView extends ItemView {
 		return wrap.querySelector(".ig-subgroup-body") as HTMLElement;
 	}
 
-	async onClose(): Promise<void> {
+	unmount(): void {
 		window.clearInterval(this.healthTimer);
+		this.healthTimer = 0;
 		this.stopProgress(false);
 		this.unsubSwitcher?.();
 		this.unsubSwitcher = null;
-		this.contentEl.empty();
+		this.root?.empty();
+		this.root = null;
 	}
 
-	private switchTab(_tab: TabId): void {
-		this.scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
-		this.promptArea?.focus();
+	onShow(): void {
+		void this.checkHealth(false);
+		this.updateModelLabel();
 	}
 
 	private imageUrl(): string {
-		return this.plugin.getCore().serverUrl("image");
+		return this.plugin.api.serverUrl("image");
 	}
 
 	private updatePromptCount(): void {
@@ -269,8 +256,8 @@ export class ImageGenView extends ItemView {
 		const spec = this.currentModelSpec();
 		const supports = spec ? modelSupportsLora(spec.family) : false;
 		this.loraSectionEl.toggleClass("is-hidden", !supports);
-		if (!supports && this.plugin.settings.lora) {
-			this.plugin.settings.lora = "";
+		if (!supports && this.plugin.settings.image.lora) {
+			this.plugin.settings.image.lora = "";
 			void this.plugin.saveSettings();
 		}
 		this.toggleLoraScaleField();
@@ -282,7 +269,7 @@ export class ImageGenView extends ItemView {
 		const supports = spec ? modelSupportsLora(spec.family) : false;
 		this.loraScaleWrap.toggleClass(
 			"is-hidden",
-			!supports || !this.plugin.settings.lora
+			!supports || !this.plugin.settings.image.lora
 		);
 	}
 
@@ -291,8 +278,8 @@ export class ImageGenView extends ItemView {
 	}
 
 	private longEdgeForModel(): number {
-		const spec = this.availableModels().find((m) => m.id === this.plugin.settings.modelId);
-		return spec?.default_size ?? Math.max(this.plugin.settings.width, this.plugin.settings.height);
+		const spec = this.availableModels().find((m) => m.id === this.plugin.settings.image.modelId);
+		return spec?.default_size ?? Math.max(this.plugin.settings.image.width, this.plugin.settings.image.height);
 	}
 
 	private buildParamsControls(): void {
@@ -306,21 +293,21 @@ export class ImageGenView extends ItemView {
 
 		const grid = this.genParamsEl.createDiv({ cls: "image-gen-param-form-grid" });
 		this.widthInput = this.addNumberField(grid, "Width", (v) => {
-			this.plugin.settings.width = v;
-			this.plugin.settings.aspectRatio = detectAspect(v, this.plugin.settings.height);
+			this.plugin.settings.image.width = v;
+			this.plugin.settings.image.aspectRatio = detectAspect(v, this.plugin.settings.image.height);
 			void this.saveParams();
 		});
 		this.heightInput = this.addNumberField(grid, "Height", (v) => {
-			this.plugin.settings.height = v;
-			this.plugin.settings.aspectRatio = detectAspect(this.plugin.settings.width, v);
+			this.plugin.settings.image.height = v;
+			this.plugin.settings.image.aspectRatio = detectAspect(this.plugin.settings.image.width, v);
 			void this.saveParams();
 		});
 		this.stepsInput = this.addNumberField(grid, "Steps", (v) => {
-			this.plugin.settings.steps = v;
+			this.plugin.settings.image.steps = v;
 			void this.saveParams();
 		});
 		this.cfgInput = this.addNumberField(grid, "Guidance", (v) => {
-			this.plugin.settings.cfg = v;
+			this.plugin.settings.image.cfg = v;
 			void this.saveParams();
 		}, true);
 
@@ -333,7 +320,7 @@ export class ImageGenView extends ItemView {
 			attr: { type: "text", placeholder: "random" },
 		});
 		this.seedInput.onchange = () => {
-			this.plugin.settings.seed = this.seedInput.value.trim();
+			this.plugin.settings.image.seed = this.seedInput.value.trim();
 			void this.saveParams();
 		};
 		const randomBtn = seedInputRow.createEl("button", {
@@ -341,7 +328,7 @@ export class ImageGenView extends ItemView {
 			text: "Random",
 		});
 		randomBtn.onclick = () => {
-			this.plugin.settings.seed = "";
+			this.plugin.settings.image.seed = "";
 			this.seedInput.value = "";
 			void this.saveParams();
 		};
@@ -355,7 +342,7 @@ export class ImageGenView extends ItemView {
 			attr: { rows: "2", placeholder: "Things to avoid…" },
 		});
 		this.negativeInput.onchange = () => {
-			this.plugin.settings.negativePrompt = this.negativeInput.value;
+			this.plugin.settings.image.negativePrompt = this.negativeInput.value;
 			void this.saveParams();
 		};
 
@@ -389,7 +376,7 @@ export class ImageGenView extends ItemView {
 
 	syncParamsControls(): void {
 		if (!this.widthInput) return;
-		const s = this.plugin.settings;
+		const s = this.plugin.settings.image;
 		this.widthInput.value = String(s.width);
 		this.heightInput.value = String(s.height);
 		this.stepsInput.value = String(s.steps);
@@ -404,7 +391,7 @@ export class ImageGenView extends ItemView {
 	renderAspectPicker(): void {
 		if (!this.aspectEl) return;
 		this.aspectEl.empty();
-		const s = this.plugin.settings;
+		const s = this.plugin.settings.image;
 		const active =
 			s.aspectRatio === "custom"
 				? detectAspect(s.width, s.height)
@@ -426,9 +413,9 @@ export class ImageGenView extends ItemView {
 
 	private async applyAspect(id: Exclude<AspectId, "custom">): Promise<void> {
 		const { width, height } = sizesForAspect(id, this.longEdgeForModel());
-		this.plugin.settings.aspectRatio = id;
-		this.plugin.settings.width = width;
-		this.plugin.settings.height = height;
+		this.plugin.settings.image.aspectRatio = id;
+		this.plugin.settings.image.width = width;
+		this.plugin.settings.image.height = height;
 		await this.saveParams();
 		this.syncParamsControls();
 	}
@@ -452,7 +439,7 @@ export class ImageGenView extends ItemView {
 	updateModelLabel(): void {
 		if (!this.modelEl) return;
 		try {
-			this.modelEl.setText(this.plugin.getCore().switcher.activeModelName("image"));
+			this.modelEl.setText(this.plugin.api.switcher.activeModelName("image"));
 		} catch {
 			const spec = this.currentModelSpec();
 			this.modelEl.setText(spec?.name ?? DEFAULT_MODEL_LABEL);
@@ -462,20 +449,20 @@ export class ImageGenView extends ItemView {
 	private async applyModelFromCore(): Promise<void> {
 		const id = this.activeImageModelId();
 		const spec = this.availableModels().find((m) => m.id === id);
-		if (this.plugin.settings.modelId !== id) {
-			this.plugin.settings.modelId = id;
+		if (this.plugin.settings.image.modelId !== id) {
+			this.plugin.settings.image.modelId = id;
 			if (spec) {
-				this.plugin.settings.aspectRatio = "1:1";
+				this.plugin.settings.image.aspectRatio = "1:1";
 				const { width, height } = sizesForAspect("1:1", spec.default_size);
-				this.plugin.settings.width = width;
-				this.plugin.settings.height = height;
-				this.plugin.settings.steps = spec.default_steps;
-				this.plugin.settings.cfg = spec.default_cfg;
+				this.plugin.settings.image.width = width;
+				this.plugin.settings.image.height = height;
+				this.plugin.settings.image.steps = spec.default_steps;
+				this.plugin.settings.image.cfg = spec.default_cfg;
 			}
 			const loraStillOk = this.loraCatalog.find(
-				(l) => l.id === this.plugin.settings.lora && l.compatible
+				(l) => l.id === this.plugin.settings.image.lora && l.compatible
 			);
-			if (!loraStillOk) this.plugin.settings.lora = "";
+			if (!loraStillOk) this.plugin.settings.image.lora = "";
 			await this.plugin.saveSettings();
 			this.renderGenParams();
 			await this.refreshLoras(false);
@@ -486,14 +473,14 @@ export class ImageGenView extends ItemView {
 
 	private activeImageModelId(): string {
 		try {
-			return this.plugin.getCore().switcher.getActiveModel("image");
+			return this.plugin.api.switcher.getActiveModel("image");
 		} catch {
-			return this.plugin.settings.modelId;
+			return this.plugin.settings.image.modelId;
 		}
 	}
 
 	private loraDirPath(): string {
-		return this.plugin.getCore().modelPaths().loras;
+		return this.plugin.api.modelPaths().loras;
 	}
 
 	async refreshLoras(verbose = true): Promise<void> {
@@ -523,9 +510,9 @@ export class ImageGenView extends ItemView {
 				this.loraHintEl.addClass("is-hidden");
 				this.loraHintEl.setText("");
 			}
-			const activeLora = compatible.find((l) => l.id === this.plugin.settings.lora);
-			if (this.plugin.settings.lora && !activeLora) {
-				this.plugin.settings.lora = "";
+			const activeLora = compatible.find((l) => l.id === this.plugin.settings.image.lora);
+			if (this.plugin.settings.image.lora && !activeLora) {
+				this.plugin.settings.image.lora = "";
 				await this.plugin.saveSettings();
 			}
 			this.renderLoraPicker();
@@ -547,7 +534,7 @@ export class ImageGenView extends ItemView {
 			cls: "image-gen-lora-chip",
 			text: "None",
 		});
-		noneBtn.toggleClass("is-active", !this.plugin.settings.lora);
+		noneBtn.toggleClass("is-active", !this.plugin.settings.image.lora);
 		noneBtn.onclick = () => void this.selectLora(LORA_NONE);
 
 		for (const entry of this.loraCatalog.filter((l) => l.compatible)) {
@@ -555,13 +542,13 @@ export class ImageGenView extends ItemView {
 				cls: "image-gen-lora-chip",
 				text: entry.name,
 			});
-			btn.toggleClass("is-active", this.plugin.settings.lora === entry.id);
+			btn.toggleClass("is-active", this.plugin.settings.image.lora === entry.id);
 			btn.onclick = () => void this.selectLora(entry.id);
 		}
 	}
 
 	private async selectLora(id: string): Promise<void> {
-		this.plugin.settings.lora = id;
+		this.plugin.settings.image.lora = id;
 		await this.plugin.saveSettings();
 		this.renderLoraPicker();
 		this.toggleLoraScaleField();
@@ -666,7 +653,7 @@ export class ImageGenView extends ItemView {
 	}
 
 	renderOutput(highlightPath?: string): void {
-		const records = this.plugin.recentOutputs;
+		const records = this.plugin.settings.imageRecentOutputs;
 		const latest = highlightPath
 			? records.find((r) => r.path === highlightPath) ?? records[0]
 			: records[0];
@@ -682,14 +669,14 @@ export class ImageGenView extends ItemView {
 			return;
 		}
 
-		const file = this.app.vault.getAbstractFileByPath(latest.path);
+		const file = this.plugin.app.vault.getAbstractFileByPath(latest.path);
 		if (file instanceof TFile) {
 			const frame = this.previewEl.createDiv({ cls: "image-gen-preview-frame" });
 			const img = frame.createEl("img", { cls: "image-gen-preview-img" });
 			img.alt = latest.prompt;
 			img.title = `${latest.prompt}\nseed ${latest.seed}`;
-			img.src = this.app.vault.getResourcePath(file);
-			img.ondblclick = () => void this.app.workspace.openLinkText(latest.path, "", false);
+			img.src = this.plugin.app.vault.getResourcePath(file);
+			img.ondblclick = () => void this.plugin.app.workspace.openLinkText(latest.path, "", false);
 
 			const menuBtn = frame.createEl("button", {
 				cls: "image-gen-preview-menu clickable-icon",
@@ -703,7 +690,7 @@ export class ImageGenView extends ItemView {
 					item
 						.setTitle("Open")
 						.setIcon("file")
-						.onClick(() => void this.app.workspace.openLinkText(latest.path, "", false))
+						.onClick(() => void this.plugin.app.workspace.openLinkText(latest.path, "", false))
 				);
 				menu.addItem((item) =>
 					item
@@ -740,19 +727,19 @@ export class ImageGenView extends ItemView {
 
 		const grid = this.galleryEl.createDiv({ cls: "image-gen-thumb-grid" });
 		for (const rec of records.slice(0, 12)) {
-			const f = this.app.vault.getAbstractFileByPath(rec.path);
+			const f = this.plugin.app.vault.getAbstractFileByPath(rec.path);
 			if (!(f instanceof TFile)) continue;
 			const thumb = grid.createDiv({ cls: "image-gen-thumb" });
 			if (rec.path === latest.path) thumb.addClass("is-active");
 			const timg = thumb.createEl("img");
-			timg.src = this.app.vault.getResourcePath(f);
+			timg.src = this.plugin.app.vault.getResourcePath(f);
 			timg.title = rec.prompt;
 			thumb.onclick = () => this.renderOutput(rec.path);
 		}
 	}
 
 	insertLink(path: string): void {
-		const editor = this.app.workspace.activeEditor?.editor;
+		const editor = this.plugin.app.workspace.activeEditor?.editor;
 		if (editor) {
 			editor.replaceSelection(`![[${path}]]\n`);
 			new Notice("Inserted image link");

@@ -6,8 +6,8 @@ import {
 	type CatalogModel,
 	type ModelSlot,
 } from "./catalog";
-import type { CybriaServerKey } from "./servers";
-import { CYBRIA_SERVERS } from "./servers";
+import type { CybriaServiceKey } from "./servers";
+import { CYBRIA_PORT } from "./servers";
 
 export type SwitchStatus = "idle" | "loading" | "ready" | "error";
 
@@ -22,7 +22,7 @@ export interface SlotState {
 
 export type SwitcherListener = (slot: ModelSlot, state: SlotState) => void;
 
-const HEAVY_SERVERS: CybriaServerKey[] = ["llm", "image", "tts"];
+const HEAVY_SERVICES: CybriaServiceKey[] = ["llm", "image", "tts"];
 
 export class ModelSwitcher {
 	private listeners = new Set<SwitcherListener>();
@@ -80,6 +80,11 @@ export class ModelSwitcher {
 		return this.getActive()[slot];
 	}
 
+	activeModelName(slot: ModelSlot): string {
+		const id = this.getActiveModel(slot);
+		return getCatalogModel(id)?.name ?? id;
+	}
+
 	getState(slot: ModelSlot): SlotState {
 		return { ...(this.slotState.get(slot) ?? this.emptyState(slot)) };
 	}
@@ -88,33 +93,28 @@ export class ModelSwitcher {
 		return this.listSlots().map((s) => this.getState(s));
 	}
 
-	serverUrl(server: CybriaServerKey): string {
-		return CYBRIA_SERVERS[server].defaultUrl;
+	serverUrl(service: CybriaServiceKey): string {
+		return this.api.serviceUrl(service);
 	}
 
-	isServerRunning(server: CybriaServerKey): boolean {
-		return this.api.runner(server).isRunning();
+	isServerRunning(_service: CybriaServiceKey): boolean {
+		return this.api.isGatewayRunning();
 	}
 
-	/** Stop other heavy GPU servers before loading a new heavy model. */
-	private async releaseHeavyExcept(keep: CybriaServerKey): Promise<void> {
-		for (const s of HEAVY_SERVERS) {
+	/** Stop other heavy GPU services before loading a new heavy model. */
+	private async releaseHeavyExcept(keep: CybriaServiceKey): Promise<void> {
+		for (const s of HEAVY_SERVICES) {
 			if (s === keep) continue;
-			const runner = this.api.runner(s);
-			if (runner.isRunning()) {
-				await new Promise<void>((resolve) => {
-					runner.stopServer(() => resolve());
-				});
-			}
+			await this.api.stopService(s);
 		}
 	}
 
 	private async loadOnServer(
-		server: CybriaServerKey,
+		service: CybriaServiceKey,
 		modelId: string
 	): Promise<void> {
-		const url = this.serverUrl(server);
-		switch (server) {
+		const url = this.serverUrl(service);
+		switch (service) {
 			case "llm":
 				await this.api.llm.loadModel(modelId, url);
 				break;
@@ -132,26 +132,26 @@ export class ModelSwitcher {
 
 	private async pollLoaded(
 		slot: ModelSlot,
-		server: CybriaServerKey,
+		service: CybriaServiceKey,
 		modelId: string,
 		timeoutMs = 300_000
 	): Promise<void> {
-		const url = this.serverUrl(server);
+		const url = this.serverUrl(service);
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
 			try {
-				if (server === "llm") {
+				if (service === "llm") {
 					const h = await this.api.llm.ping(url);
 					if (h.ready && h.model_id === modelId) return;
 					if (h.error && !h.loading) throw new Error(h.error);
-				} else if (server === "summarize") {
+				} else if (service === "summarize") {
 					const h = await this.api.summarize.ping(url);
 					if (h.ready) return;
-				} else if (server === "tts") {
+				} else if (service === "tts") {
 					const h = await this.api.tts.ping(url);
 					if (h.ready) return;
 					if (h.error) throw new Error(h.error);
-				} else if (server === "image") {
+				} else if (service === "image") {
 					const h = await this.api.image.ping(url);
 					if (h.ready && h.model_id === modelId) return;
 					if (h.error && !h.loading) throw new Error(h.error);
@@ -180,37 +180,36 @@ export class ModelSwitcher {
 			throw new Error(`Unknown model ${modelId} for slot ${slot}`);
 		}
 
-		const server = serverForSlot(slot);
-		const log = opts?.onLog ?? (() => undefined);
+		const service = serverForSlot(slot);
+		const log = opts?.onLog ?? ((line: string) => this.api.appendLog(line));
 		this.loadingSlot = slot;
 		this.patch(slot, {
 			status: "loading",
 			error: null,
 			activeModelId: modelId,
-			serverRunning: this.api.runner(server).isRunning(),
+			serverRunning: this.api.isGatewayRunning(),
 		});
 
 		try {
 			if (entry.vram === "heavy") {
-				log(`[switcher] releasing other heavy servers before ${entry.name}`);
-				await this.releaseHeavyExcept(server);
+				log(`[switcher] releasing other heavy services before ${entry.name}`);
+				await this.releaseHeavyExcept(service);
 			}
 
-			const runner = this.api.runner(server);
-			if (!runner.isRunning()) {
+			if (!this.api.isGatewayRunning()) {
 				if (opts?.ensureServer === false) {
-					throw new Error(`${server} server not running — launch it first`);
+					throw new Error(`Cybria server not running — launch gateway first`);
 				}
-				log(`[switcher] launching ${server} server`);
-				const toolsDir = this.api.resolveToolsDir(server);
-				runner.launchServer(toolsDir, log);
-				await new Promise((r) => setTimeout(r, 2000));
+				log(`[switcher] launching cybria-server on :${CYBRIA_PORT}`);
+				const toolsDir = this.api.resolveToolsDir("gateway");
+				this.api.runner().launchServer(toolsDir, log);
+				await new Promise((r) => setTimeout(r, 3000));
 			}
 
 			this.patch(slot, { serverRunning: true });
-			log(`[switcher] loading ${modelId} on ${server}`);
-			await this.loadOnServer(server, modelId);
-			await this.pollLoaded(slot, server, modelId);
+			log(`[switcher] loading ${modelId} via ${service}`);
+			await this.loadOnServer(service, modelId);
+			await this.pollLoaded(slot, service, modelId);
 
 			await this.setActive(slot, modelId);
 			this.patch(slot, {
@@ -231,8 +230,8 @@ export class ModelSwitcher {
 	/** Refresh health for all slots from running servers. */
 	async refresh(): Promise<void> {
 		for (const slot of this.listSlots()) {
-			const server = serverForSlot(slot);
-			const running = this.api.runner(server).isRunning();
+			const service = serverForSlot(slot);
+			const running = this.api.isGatewayRunning();
 			this.patch(slot, {
 				serverRunning: running,
 				activeModelId: this.getActive()[slot],
@@ -242,10 +241,10 @@ export class ModelSwitcher {
 				continue;
 			}
 			try {
-				const url = this.serverUrl(server);
+				const url = this.serverUrl(service);
 				let loaded: string | null = null;
 				let ready = false;
-				if (server === "llm") {
+				if (service === "llm") {
 					const h = await this.api.llm.ping(url);
 					loaded = h.model_id ?? null;
 					ready = !!h.ready;
@@ -254,7 +253,7 @@ export class ModelSwitcher {
 						status: h.loading ? "loading" : ready ? "ready" : "idle",
 						error: h.error ?? null,
 					});
-				} else if (server === "summarize") {
+				} else if (service === "summarize") {
 					const h = await this.api.summarize.ping(url);
 					ready = !!h.ready;
 					this.patch(slot, {
@@ -262,14 +261,14 @@ export class ModelSwitcher {
 						loadedModelId: this.getActive()[slot],
 						error: h.error ?? null,
 					});
-				} else if (server === "tts") {
+				} else if (service === "tts") {
 					const h = await this.api.tts.ping(url);
 					ready = !!h.ready;
 					this.patch(slot, {
 						status: ready ? "ready" : "idle",
 						error: h.error ?? null,
 					});
-				} else if (server === "image") {
+				} else if (service === "image") {
 					const h = await this.api.image.ping(url);
 					loaded = h.model_id ?? null;
 					ready = !!h.ready;

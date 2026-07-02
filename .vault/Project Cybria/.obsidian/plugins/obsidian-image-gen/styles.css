@@ -50,6 +50,31 @@
 	padding: 0;
 }
 
+/* --- View header (active model from Cybria AI) --- */
+.ig-header {
+	padding: 12px 14px 0;
+	flex-shrink: 0;
+}
+
+.ig-title-block {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.ig-header-title {
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	line-height: 1.2;
+}
+
+.ig-header-model {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	line-height: 1.3;
+}
+
 /* --- Scroll container (the fix: fills height, scrolls) --- */
 .ig-scroll {
 	flex: 1 1 auto;

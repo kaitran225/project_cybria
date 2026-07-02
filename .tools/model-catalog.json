@@ -73,7 +73,7 @@
       "min_vram_gb": 6,
       "integrated": "cybria-tts",
       "pull": "hf download bosonai/higgs-tts-3-4b --local-dir G:/.models/tts/higgs-tts-3-4b",
-      "serve": "cybria-tts :8792 (vllm-omni; pip install vllm-omni in .tools/cybria-tts/.venv)",
+      "serve": "http://127.0.0.1:2253/tts",
       "note": "~5B speech model. Research/non-commercial license.",
       "url": "https://huggingface.co/bosonai/higgs-tts-3-4b"
     },
@@ -89,7 +89,7 @@
       "size_gb": 7.5,
       "integrated": "cybria-llm",
       "pull": "python .tools/cybria-llm/download.py gemma-4-12b-agentic-gguf",
-      "serve": "http://127.0.0.1:8790",
+      "serve": "http://127.0.0.1:2253/llm",
       "note": "Agentic coding / tool use. Good fit for 8GB with Q4.",
       "url": "https://huggingface.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF"
     },
@@ -105,7 +105,7 @@
       "size_gb": 7,
       "integrated": "cybria-llm",
       "pull": "python .tools/cybria-llm/download.py ornith-1.0-9b",
-      "serve": "http://127.0.0.1:8790",
+      "serve": "http://127.0.0.1:2253/llm",
       "note": "Agentic coding. Use GGUF for 8GB; full bf16 needs ~19GB.",
       "url": "https://huggingface.co/deepreinforce-ai/Ornith-1.0-9B"
     },
@@ -121,7 +121,7 @@
       "size_gb": 7.6,
       "integrated": "cybria-llm",
       "pull": "python .tools/cybria-llm/download.py wanabi-novelist-12b",
-      "serve": "http://127.0.0.1:8790",
+      "serve": "http://127.0.0.1:2253/llm",
       "note": "Japanese novel writing.",
       "url": "https://huggingface.co/mradermacher/Wanabi-Novelist-12B-i1-GGUF"
     },
@@ -137,7 +137,7 @@
       "size_gb": 9.1,
       "integrated": "cybria-llm",
       "pull": "python .tools/cybria-llm/download.py nqlsg-qwen3-14b-novel",
-      "serve": "http://127.0.0.1:8790",
+      "serve": "http://127.0.0.1:2253/llm",
       "note": "14B novel model. Q4_K_M may need most of 8GB; try Q3_K_M if OOM.",
       "url": "https://huggingface.co/mradermacher/NQLSG-Qwen3-14B-NovelFusion-Base-i1-GGUF"
     },
@@ -151,8 +151,8 @@
       "runnable_local": "yes",
       "size_gb": 2.3,
       "integrated": "cybria-summarize",
-      "pull": "POST http://127.0.0.1:8791/download {\"model_id\":\"pegasus-xsum\"}",
-      "serve": "http://127.0.0.1:8791",
+      "pull": "POST http://127.0.0.1:2253/summarize/download {\"model_id\":\"pegasus-xsum\"}",
+      "serve": "http://127.0.0.1:2253/summarize",
       "note": "Abstractive summarization (XSum style). Runs on CPU or GPU easily.",
       "url": "https://huggingface.co/google/pegasus-xsum"
     },
@@ -166,8 +166,8 @@
       "runnable_local": "yes",
       "size_gb": 1.6,
       "integrated": "cybria-summarize",
-      "pull": "POST http://127.0.0.1:8791/download {\"model_id\":\"bart-large-cnn\"}",
-      "serve": "http://127.0.0.1:8791",
+      "pull": "POST http://127.0.0.1:2253/summarize/download {\"model_id\":\"bart-large-cnn\"}",
+      "serve": "http://127.0.0.1:2253/summarize",
       "note": "News-style summarization. Lightweight on 8GB.",
       "url": "https://huggingface.co/facebook/bart-large-cnn"
     }

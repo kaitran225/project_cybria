@@ -1,4 +1,4 @@
-import type { CybriaServerKey } from "./servers";
+import type { CybriaServiceKey } from "./servers";
 
 /** Logical slot in the switcher UI (novel shares the llm server). */
 export type ModelSlot = "llm" | "novel" | "summarize" | "tts" | "image";
@@ -9,7 +9,7 @@ export interface CatalogModel {
 	id: string;
 	name: string;
 	slot: ModelSlot;
-	server: CybriaServerKey;
+	server: CybriaServiceKey;
 	vram: VramClass;
 	runnable: "yes" | "tight" | "marginal";
 	sizeGb?: number;
@@ -129,7 +129,7 @@ export function getCatalogModel(id: string): CatalogModel | undefined {
 	return MODEL_CATALOG.find((m) => m.id === id);
 }
 
-export function serverForSlot(slot: ModelSlot): CybriaServerKey {
+export function serverForSlot(slot: ModelSlot): CybriaServiceKey {
 	const m = MODEL_CATALOG.find((x) => x.slot === slot);
 	return m?.server ?? (slot === "novel" ? "llm" : slot);
 }

@@ -1,9 +1,0 @@
-{
-	"id": "image-gen",
-	"name": "Image Gen",
-	"version": "0.1.0",
-	"minAppVersion": "1.5.0",
-	"description": "Generate images from prompts using local Qwen (8GB VRAM).",
-	"author": "Project Cybria",
-	"isDesktopOnly": true
-}

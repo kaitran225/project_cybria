@@ -1,9 +1,0 @@
-{
-	"id": "cybria-llm",
-	"name": "Cybria LLM",
-	"version": "0.1.0",
-	"minAppVersion": "1.5.0",
-	"description": "Local GGUF chat via llama.cpp (no Ollama).",
-	"author": "Project Cybria",
-	"isDesktopOnly": true
-}

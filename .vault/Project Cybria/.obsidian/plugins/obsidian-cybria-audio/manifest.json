@@ -1,9 +1,0 @@
-{
-	"id": "cybria-audio",
-	"name": "Cybria Audio",
-	"version": "0.1.0",
-	"minAppVersion": "1.5.0",
-	"description": "Local TTS with Higgs via vllm-omni.",
-	"author": "Project Cybria",
-	"isDesktopOnly": true
-}

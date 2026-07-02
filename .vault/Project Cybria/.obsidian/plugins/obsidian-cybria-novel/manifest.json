@@ -1,9 +1,0 @@
-{
-	"id": "cybria-novel",
-	"name": "Cybria Novel",
-	"version": "0.1.0",
-	"minAppVersion": "1.5.0",
-	"description": "Novel writing and summarization with local models.",
-	"author": "Project Cybria",
-	"isDesktopOnly": true
-}

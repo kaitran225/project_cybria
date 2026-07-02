@@ -207,9 +207,13 @@ export class CybriaServerRunner {
 	}
 }
 
-/** qwen-image needs extra env vars at launch. */
-export const QWEN_IMAGE_ENV: ServerEnvExtra = () => ({
+/** Env for unified gateway on port 2253. */
+export const GATEWAY_ENV: ServerEnvExtra = () => ({
+	CYBRIA_PORT: String(2253),
 	QWEN_IMAGE_MAX_SIDE: "512",
 	QWEN_IMAGE_LIGHTNING: "1",
 	QWEN_IMAGE_COMPILE: "0",
 });
+
+/** @deprecated Gateway passes image env to subprocess */
+export const QWEN_IMAGE_ENV: ServerEnvExtra = GATEWAY_ENV;

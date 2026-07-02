@@ -118,7 +118,7 @@ export default class ImageGenPlugin extends Plugin {
 			const view = leaf.view;
 			if (view instanceof ImageGenView) {
 				view.renderGenParams();
-				view.renderModelPicker();
+				view.updateModelLabel();
 				view.renderLoraPicker();
 				view.renderOutput();
 			}
@@ -142,18 +142,19 @@ export default class ImageGenPlugin extends Plugin {
 		};
 
 		const s = this.settings;
+		const imageUrl = this.getCore().serverUrl("image");
 		report(5, "Checking image server…");
-		const health = await pingServer(s.serverUrl);
+		const health = await pingServer(imageUrl);
 		if (!health.ready_to_generate && !health.ready) {
 			throw new Error(
 				health.error ||
-					"Image server not ready. Use Launch server in the Image Gen sidebar."
+					"Image server not ready. Open Cybria AI → Servers to launch."
 			);
 		}
 
 		report(12, `Generating ${s.width}×${s.height}…`);
 		const modelId = this.getCore().switcher.getActiveModel("image");
-		const result = await generateImage(s.serverUrl, {
+		const result = await generateImage(imageUrl, {
 			prompt,
 			model: modelId,
 			width: s.width,
@@ -208,31 +209,8 @@ class ImageGenSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Image generation" });
 		containerEl.createEl("p", {
-			text: "Size, steps, and model are in the Image Gen sidebar. Use this page for server paths and output folder.",
+			text: "Image server is managed in Cybria Core. Size, steps, and model are in the Image Gen sidebar.",
 		});
-
-		new Setting(containerEl)
-			.setName("Server URL")
-			.addText((t) =>
-				t
-					.setValue(this.plugin.settings.serverUrl)
-					.onChange(async (v) => {
-						this.plugin.settings.serverUrl = v.trim();
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Tools path")
-			.setDesc("Leave blank to use the default folder next to the server.")
-			.addText((t) =>
-				t
-					.setValue(this.plugin.settings.qwenToolsPath)
-					.onChange(async (v) => {
-						this.plugin.settings.qwenToolsPath = v.trim();
-						await this.plugin.saveSettings();
-					})
-			);
 
 		new Setting(containerEl)
 			.setName("Output folder")

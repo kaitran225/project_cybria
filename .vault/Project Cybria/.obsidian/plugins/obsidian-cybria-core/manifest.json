@@ -3,7 +3,7 @@
 	"name": "Cybria Core",
 	"version": "0.1.0",
 	"minAppVersion": "1.5.0",
-	"description": "Shared runtime for Cybria plugins — model paths, server launchers, and API clients.",
+	"description": "Cybria AI — gateway, models, chat, novel, audio, and image generation.",
 	"author": "Project Cybria",
 	"isDesktopOnly": true
 }

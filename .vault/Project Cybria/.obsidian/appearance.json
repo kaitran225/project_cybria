@@ -1,6 +1,6 @@
 {
-  "cssTheme": "Transparent",
+  "cssTheme": "Obsidian gruvbox",
   "theme": "obsidian",
-  "accentColor": "",
+  "accentColor": "#6db478",
   "enabledCssSnippets": []
 }

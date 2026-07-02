@@ -22,6 +22,7 @@ export interface SlotState {
 export interface CybriaCoreApi {
 	vaultPath(): string;
 	repoRoot(): string;
+	serverUrl(server: "llm" | "summarize" | "tts" | "image"): string;
 	llm: {
 		ping(baseUrl?: string): Promise<{ ready?: boolean; loading?: boolean; model_id?: string; error?: string | null }>;
 		loadModel(modelId: string, baseUrl?: string): Promise<void>;
@@ -72,6 +73,7 @@ export interface CybriaCoreApi {
 		refresh(): Promise<void>;
 		onChange(fn: (slot: ModelSlot, state: SlotState) => void): () => void;
 		listModels(slot: ModelSlot): Array<{ id: string; name: string; runnable: string; note?: string }>;
+		activeModelName(slot: ModelSlot): string;
 	};
 	runner(server: "llm" | "summarize" | "tts" | "image"): {
 		resolveToolsDir(vaultBasePath: string, override?: string): string;

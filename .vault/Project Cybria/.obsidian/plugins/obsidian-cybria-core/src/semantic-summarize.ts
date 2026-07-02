@@ -1,5 +1,4 @@
 import type { CybriaCoreApi } from "./api";
-import { CYBRIA_SERVERS } from "./servers";
 import {
 	catalyze,
 	combineHitsForSummarize,
@@ -55,7 +54,7 @@ export class SemanticSummarizer {
 	 */
 	async summarize(opts: SemanticSummarizeOptions): Promise<SemanticSummarizeResult> {
 		const modelId = opts.modelId ?? this.api.switcher.getActiveModel("summarize");
-		const sumUrl = opts.summarizeUrl ?? CYBRIA_SERVERS.summarize.defaultUrl;
+		const sumUrl = opts.summarizeUrl ?? this.api.serverUrl("summarize");
 
 		if (opts.directText?.trim()) {
 			const text = opts.directText.trim();

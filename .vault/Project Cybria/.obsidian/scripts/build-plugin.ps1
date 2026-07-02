@@ -97,7 +97,7 @@ Invoke-PluginBuild "obsidian-storyteller-suite" {
     npm run build
 }
 
-Invoke-PluginBuild "obsidian-image-gen" {
+Invoke-PluginBuild "obsidian-cybria-core" {
     npm install
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     npm run build

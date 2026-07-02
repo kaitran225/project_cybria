@@ -1,5 +1,4 @@
 [
-  "obsidian-style-settings",
   "dataview",
   "obsidian-tasks-plugin",
   "tasks-map",
@@ -9,8 +8,5 @@
   "creases",
   "people-graph",
   "cybria-core",
-  "image-gen",
-  "cybria-llm",
-  "cybria-novel",
-  "cybria-audio"
+  "web-view"
 ]
