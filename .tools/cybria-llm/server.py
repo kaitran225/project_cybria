@@ -177,9 +177,5 @@ def _auto_load() -> None:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from cybria_log import quiet_uvicorn
-
-    quiet_uvicorn()
     threading.Thread(target=_auto_load, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="info", access_log=False)

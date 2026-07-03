@@ -45,7 +45,7 @@ SERVICES: dict[str, dict[str, Any]] = {
         "extra_env": {},
     },
     "image": {
-        "dir": "qwen-image",
+        "dir": "cybria-diffuser",
         "internal_port": int(os.environ.get("CYBRIA_IMAGE_INTERNAL_PORT", "22534")),
         "env_port": "QWEN_IMAGE_PORT",
         "extra_env": {
@@ -448,11 +448,7 @@ def _handle_signal(*_args: Any) -> None:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(TOOLS))
-    from cybria_log import quiet_uvicorn
-
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
-    quiet_uvicorn()
     print(f"[cybria-server] gateway starting on http://{HOST}:{PORT}", flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="info", access_log=False)

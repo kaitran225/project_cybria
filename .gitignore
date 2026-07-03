@@ -76,6 +76,7 @@ __pycache__/
 venv/
 env/
 .tools/qwen-image/.venv/
+.tools/cybria-diffuser/.venv/
 *.egg-info/
 .eggs/
 .pytest_cache/

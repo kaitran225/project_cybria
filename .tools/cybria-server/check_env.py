@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TOOLS = ROOT.parent
 
-SERVICES = ["cybria-llm", "cybria-summarize", "cybria-tts", "qwen-image"]
+SERVICES = ["cybria-llm", "cybria-summarize", "cybria-tts", "cybria-diffuser"]
 
 
 def _py(tools_dir: Path) -> Path:

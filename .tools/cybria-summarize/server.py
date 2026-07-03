@@ -147,12 +147,5 @@ def download_model_endpoint(req: LoadRequest) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from cybria_log import quiet_uvicorn
-
     os.environ.setdefault("HF_HOME", str(summarization_dir().parent))
-    quiet_uvicorn()
     uvicorn.run(app, host=HOST, port=PORT, log_level="info", access_log=False)

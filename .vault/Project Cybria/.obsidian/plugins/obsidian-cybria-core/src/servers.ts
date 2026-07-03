@@ -28,7 +28,7 @@ export const SERVICE_TOOLS: Record<CybriaServiceKey, string> = {
 	llm: "cybria-llm",
 	summarize: "cybria-summarize",
 	tts: "cybria-tts",
-	image: "qwen-image",
+	image: "cybria-diffuser",
 };
 
 export const ALL_SERVICES: CybriaServiceKey[] = ["llm", "summarize", "tts", "image"];

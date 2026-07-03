@@ -34,7 +34,7 @@
       "runtime": "diffusers",
       "storage_key": "huggingface",
       "runnable_local": "yes",
-      "integrated": "qwen-image-server",
+      "integrated": "cybria-diffuser",
       "note": "Already in Image Gen server"
     },
     {
@@ -45,7 +45,7 @@
       "runtime": "diffusers",
       "storage_key": "huggingface",
       "runnable_local": "yes",
-      "integrated": "qwen-image-server",
+      "integrated": "cybria-diffuser",
       "note": "SDXL — already in Image Gen server"
     },
     {
