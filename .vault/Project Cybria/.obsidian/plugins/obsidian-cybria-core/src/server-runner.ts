@@ -1,14 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import * as path from "path";
-import {
-	hubCacheDir,
-	modelPathEnv,
-	readModelPathsFile,
-	repoRootFromTools,
-	resolveModelPaths,
-	type ModelPathsConfig,
-} from "./model-paths";
+import { hubCacheDir, modelPathEnv, readModelPathsFile, resolveModelPaths, type ModelPathsConfig } from "./model-paths";
+import { repoRootFromTools } from "./vault";
 
 export interface ReqCheckResult {
 	ok: boolean;
@@ -321,6 +315,3 @@ export const GATEWAY_ENV: ServerEnvExtra = () => ({
 	QWEN_IMAGE_COMPILE: "0",
 	QWEN_IMAGE_WARMUP: "0",
 });
-
-/** @deprecated Gateway passes image env to subprocess */
-export const QWEN_IMAGE_ENV: ServerEnvExtra = GATEWAY_ENV;

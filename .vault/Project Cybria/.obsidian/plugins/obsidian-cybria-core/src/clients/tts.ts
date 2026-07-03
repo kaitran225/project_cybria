@@ -1,16 +1,13 @@
-import { apiBase, parseError } from "../http";
+import { parseError } from "../http";
+import { ServiceClient } from "./base";
 
-export class TtsClient {
-	constructor(private readonly defaultUrl: string) {}
-
+export class TtsClient extends ServiceClient {
 	async ping(baseUrl = this.defaultUrl): Promise<{
 		ready?: boolean;
 		error?: string;
 		model_id?: string;
 	}> {
-		const res = await fetch(`${apiBase(baseUrl)}/health`);
-		if (!res.ok) throw new Error(`TTS server not reachable (${res.status})`);
-		return (await res.json()) as { ready?: boolean; error?: string; model_id?: string };
+		return this.pingHealth(baseUrl);
 	}
 
 	async synthesize(
@@ -18,7 +15,7 @@ export class TtsClient {
 		baseUrl = this.defaultUrl,
 		opts?: { voice?: string; speed?: number }
 	): Promise<ArrayBuffer> {
-		const res = await fetch(`${apiBase(baseUrl)}/tts`, {
+		const res = await fetch(`${this.url(baseUrl)}/tts`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -32,20 +29,10 @@ export class TtsClient {
 	}
 
 	async downloadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/download`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Download failed (${res.status})`));
+		return this.postDownload(modelId, baseUrl);
 	}
 
 	async loadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/models/load`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Load failed (${res.status})`));
+		return this.postLoadModel(modelId, baseUrl);
 	}
 }

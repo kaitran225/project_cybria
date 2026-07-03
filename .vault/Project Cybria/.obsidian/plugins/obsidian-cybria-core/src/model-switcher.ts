@@ -2,6 +2,7 @@ import type { CybriaCoreApi } from "./api";
 import {
 	getCatalogModel,
 	serverForSlot,
+	ALL_MODEL_SLOTS,
 	type CatalogModel,
 	type ModelSlot,
 } from "./catalog";
@@ -10,8 +11,10 @@ import {
 	getHardwareProfile,
 	isModelVisibleForProfile,
 } from "./hardware-profiles";
+import { gatewayHealthToSlotState, parseServiceHealth } from "./gateway-health";
 import type { CybriaServiceKey } from "./servers";
-import { CYBRIA_PORT } from "./servers";
+
+const HEAVY_SERVICES: CybriaServiceKey[] = ["llm", "image"];
 
 export type SwitchStatus = "idle" | "loading" | "ready" | "error";
 
@@ -26,8 +29,6 @@ export interface SlotState {
 
 export type SwitcherListener = (slot: ModelSlot, state: SlotState) => void;
 
-const HEAVY_SERVICES: CybriaServiceKey[] = ["llm", "image"];
-
 export class ModelSwitcher {
 	private listeners = new Set<SwitcherListener>();
 	private slotState = new Map<ModelSlot, SlotState>();
@@ -38,7 +39,7 @@ export class ModelSwitcher {
 		private getActive: () => Record<ModelSlot, string>,
 		private setActive: (slot: ModelSlot, modelId: string) => Promise<void>
 	) {
-		for (const slot of ["llm", "novel", "summarize", "tts", "image"] as ModelSlot[]) {
+		for (const slot of ALL_MODEL_SLOTS) {
 			this.slotState.set(slot, this.emptyState(slot));
 		}
 	}
@@ -73,7 +74,7 @@ export class ModelSwitcher {
 	}
 
 	listSlots(): ModelSlot[] {
-		return ["llm", "novel", "summarize", "tts", "image"];
+		return [...ALL_MODEL_SLOTS];
 	}
 
 	listModels(slot: ModelSlot): CatalogModel[] {
@@ -97,14 +98,6 @@ export class ModelSwitcher {
 		return this.listSlots().map((s) => this.getState(s));
 	}
 
-	serverUrl(service: CybriaServiceKey): string {
-		return this.api.serviceUrl(service);
-	}
-
-	isServerRunning(_service: CybriaServiceKey): boolean {
-		return this.api.isGatewayRunning();
-	}
-
 	/** Stop other heavy GPU services before loading a new heavy model. */
 	private async releaseHeavyExcept(keep: CybriaServiceKey): Promise<void> {
 		for (const s of HEAVY_SERVICES) {
@@ -117,7 +110,7 @@ export class ModelSwitcher {
 		service: CybriaServiceKey,
 		modelId: string
 	): Promise<void> {
-		const url = this.serverUrl(service);
+		const url = this.api.serviceUrl(service);
 		switch (service) {
 			case "llm":
 				await this.api.llm.loadModel(modelId, url);
@@ -140,7 +133,7 @@ export class ModelSwitcher {
 		modelId: string,
 		timeoutMs = 300_000
 	): Promise<void> {
-		const url = this.serverUrl(service);
+		const url = this.api.serviceUrl(service);
 		const deadline = Date.now() + (service === "image" ? 900_000 : timeoutMs);
 		while (Date.now() < deadline) {
 			try {
@@ -175,6 +168,74 @@ export class ModelSwitcher {
 			await new Promise((r) => setTimeout(r, 1500));
 		}
 		throw new Error("Timed out waiting for model to load");
+	}
+
+	/** Refresh health for all slots from the gateway /health snapshot (no per-service proxy pings). */
+	async refresh(): Promise<void> {
+		const localProc = this.api.isGatewayRunning();
+		const health = localProc ? await this.api.fetchGatewayHealth() : null;
+		const gatewayUp = !!(localProc || health);
+
+		for (const slot of this.listSlots()) {
+			const service = serverForSlot(slot);
+			this.patch(slot, {
+				serverRunning: gatewayUp,
+				activeModelId: this.getActive()[slot],
+			});
+			if (!health) {
+				this.patch(slot, { status: "idle", loadedModelId: null, error: null });
+				continue;
+			}
+			this.applyGatewayHealth(slot, service, health.services?.[service]);
+		}
+	}
+
+	private async isModelReadyOnServer(
+		service: CybriaServiceKey,
+		modelId: string
+	): Promise<boolean> {
+		const url = this.api.serviceUrl(service);
+		try {
+			if (service === "llm") {
+				const h = await this.api.llm.ping(url);
+				return !!(h.ready && h.model_id === modelId);
+			}
+			if (service === "summarize") {
+				const h = await this.api.summarize.ping(url);
+				return !!h.ready;
+			}
+			if (service === "tts") {
+				const h = await this.api.tts.ping(url);
+				return !!h.ready;
+			}
+			if (service === "image") {
+				const h = await this.api.image.ping(url);
+				return !!(h.ready && h.model_id === modelId);
+			}
+		} catch {
+			return false;
+		}
+		return false;
+	}
+
+	/** Load the active model for a slot if not already ready on the server. */
+	async ensureModelLoaded(
+		slot: ModelSlot,
+		opts?: { ensureServer?: boolean; onLog?: (line: string) => void }
+	): Promise<void> {
+		const modelId = this.getActiveModel(slot);
+		const service = serverForSlot(slot);
+		if (await this.isModelReadyOnServer(service, modelId)) {
+			this.patch(slot, {
+				status: "ready",
+				loadedModelId: modelId,
+				activeModelId: modelId,
+				error: null,
+				serverRunning: true,
+			});
+			return;
+		}
+		await this.activate(slot, modelId, opts);
 	}
 
 	/**
@@ -213,18 +274,10 @@ export class ModelSwitcher {
 				await this.releaseHeavyExcept(service);
 			}
 
-			if (!this.api.isGatewayRunning()) {
-				const reachable = await this.api.fetchGatewayHealth();
-				if (reachable) {
-					log(`[switcher] using gateway already answering on :${CYBRIA_PORT}`);
-				} else if (opts?.ensureServer === false) {
-					throw new Error(`Cybria server not running — launch gateway first`);
-				} else {
-					log(`[switcher] launching cybria-server on :${CYBRIA_PORT}`);
-					const toolsDir = this.api.resolveToolsDir("gateway");
-					this.api.runner().launchServer(toolsDir, log);
-					await new Promise((r) => setTimeout(r, 3000));
-				}
+			if (opts?.ensureServer !== false) {
+				await this.api.ensureGatewayRunning({ onLog: log });
+			} else if (!(this.api.isGatewayRunning() || (await this.api.fetchGatewayHealth()))) {
+				throw new Error("Cybria server not running — launch gateway first");
 			}
 
 			this.patch(slot, { serverRunning: true });
@@ -248,61 +301,13 @@ export class ModelSwitcher {
 		}
 	}
 
-	/** Refresh health for all slots from the gateway /health snapshot (no per-service proxy pings). */
-	async refresh(): Promise<void> {
-		const localProc = this.api.isGatewayRunning();
-		const health = localProc ? await this.api.fetchGatewayHealth() : null;
-		const gatewayUp = !!(localProc || health);
-
-		for (const slot of this.listSlots()) {
-			const service = serverForSlot(slot);
-			this.patch(slot, {
-				serverRunning: gatewayUp,
-				activeModelId: this.getActive()[slot],
-			});
-			if (!health) {
-				this.patch(slot, { status: "idle", loadedModelId: null, error: null });
-				continue;
-			}
-			this.applyGatewayHealth(slot, service, health.services?.[service]);
-		}
-	}
-
 	private applyGatewayHealth(
 		slot: ModelSlot,
 		_service: CybriaServiceKey,
 		raw: Record<string, unknown> | undefined
 	): void {
-		if (!raw || raw.stopped) {
-			this.patch(slot, { status: "idle", loadedModelId: null, error: null });
-			return;
-		}
-		const loaded =
-			typeof raw.model_id === "string"
-				? raw.model_id
-				: typeof raw.model_name === "string"
-					? raw.model_name
-					: null;
-		if (raw.loading) {
-			this.patch(slot, {
-				status: "loading",
-				loadedModelId: loaded,
-				error: typeof raw.error === "string" ? raw.error : null,
-			});
-			return;
-		}
-		if (raw.ready) {
-			this.patch(slot, {
-				status: "ready",
-				loadedModelId: loaded ?? this.getActive()[slot],
-				error: null,
-			});
-			return;
-		}
-		if (typeof raw.error === "string" && raw.error) {
-			this.patch(slot, { status: "error", loadedModelId: loaded, error: raw.error });
-			return;
-		}
-		this.patch(slot, { status: "idle", loadedModelId: loaded, error: null });
+		const parsed = parseServiceHealth(raw);
+		const patch = gatewayHealthToSlotState(parsed, this.getActive()[slot]);
+		this.patch(slot, patch);
 	}
 }

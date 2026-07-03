@@ -1,8 +1,8 @@
 import { Menu, Notice, TFile, setIcon } from "obsidian";
-import { fetchLoras, fetchModels, pingServer } from "./client";
+import { catalogForProfile } from "../../hardware-profiles";
 import type CybriaCorePlugin from "../../main";
 import type { AppPane } from "../types";
-import { modelsForPicker, modelSupportsLora, type ModelInfo } from "./models";
+import { imageModelsFromCatalog, modelsForPicker, modelSupportsLora, type ModelInfo } from "./models";
 import {
 	ASPECT_PRESETS,
 	detectAspect,
@@ -45,6 +45,7 @@ export class ImageGenPane implements AppPane {
 	private loraEl!: HTMLElement;
 	private loraHintEl!: HTMLElement;
 	private loraCatalog: LoraInfo[] = [];
+	private lastSyncedModelId = "";
 	private root: HTMLElement | null = null;
 	private unsubSwitcher: (() => void) | null = null;
 
@@ -207,7 +208,7 @@ export class ImageGenPane implements AppPane {
 	}
 
 	private imageUrl(): string {
-		return this.plugin.api.serverUrl("image");
+		return this.plugin.api.serviceUrl("image");
 	}
 
 	private updatePromptCount(): void {
@@ -266,11 +267,14 @@ export class ImageGenPane implements AppPane {
 	}
 
 	private availableModels(): ModelInfo[] {
-		return modelsForPicker(this.modelCatalog);
+		const fallback = imageModelsFromCatalog(
+			catalogForProfile("image", this.plugin.settings.hardwareProfile)
+		);
+		return modelsForPicker(this.modelCatalog, fallback);
 	}
 
 	private longEdgeForModel(): number {
-		const spec = this.availableModels().find((m) => m.id === this.plugin.settings.image.modelId);
+		const spec = this.availableModels().find((m) => m.id === this.activeImageModelId());
 		return spec?.default_size ?? Math.max(this.plugin.settings.image.width, this.plugin.settings.image.height);
 	}
 
@@ -418,7 +422,7 @@ export class ImageGenPane implements AppPane {
 
 	async refreshModels(): Promise<void> {
 		try {
-			const catalog = await fetchModels(this.imageUrl());
+			const catalog = await this.plugin.api.image.fetchModels(this.imageUrl());
 			this.modelCatalog = catalog.models;
 			await this.applyModelFromCore();
 			this.renderGenParams();
@@ -429,17 +433,19 @@ export class ImageGenPane implements AppPane {
 
 	private async applyModelFromCore(): Promise<void> {
 		const id = this.activeImageModelId();
+		if (this.lastSyncedModelId === id) {
+			this.updateLoraSectionVisibility();
+			return;
+		}
 		const spec = this.availableModels().find((m) => m.id === id);
-		if (this.plugin.settings.image.modelId !== id) {
-			this.plugin.settings.image.modelId = id;
-			if (spec) {
-				this.plugin.settings.image.aspectRatio = "1:1";
-				const { width, height } = sizesForAspect("1:1", spec.default_size);
-				this.plugin.settings.image.width = width;
-				this.plugin.settings.image.height = height;
-				this.plugin.settings.image.steps = spec.default_steps;
-				this.plugin.settings.image.cfg = spec.default_cfg;
-			}
+		this.lastSyncedModelId = id;
+		if (spec) {
+			this.plugin.settings.image.aspectRatio = "1:1";
+			const { width, height } = sizesForAspect("1:1", spec.default_size);
+			this.plugin.settings.image.width = width;
+			this.plugin.settings.image.height = height;
+			this.plugin.settings.image.steps = spec.default_steps;
+			this.plugin.settings.image.cfg = spec.default_cfg;
 			const loraStillOk = this.loraCatalog.find(
 				(l) => l.id === this.plugin.settings.image.lora && l.compatible
 			);
@@ -452,11 +458,7 @@ export class ImageGenPane implements AppPane {
 	}
 
 	private activeImageModelId(): string {
-		try {
-			return this.plugin.api.switcher.getActiveModel("image");
-		} catch {
-			return this.plugin.settings.image.modelId;
-		}
+		return this.plugin.api.switcher.getActiveModel("image");
 	}
 
 	private loraDirPath(): string {
@@ -476,7 +478,7 @@ export class ImageGenPane implements AppPane {
 		const url = this.imageUrl();
 		const modelId = this.activeImageModelId();
 		try {
-			const catalog = await fetchLoras(url, modelId, verbose);
+			const catalog = await this.plugin.api.image.fetchLoras(modelId, verbose, url);
 			this.loraCatalog = catalog.loras;
 			const compatible = this.loraCatalog.filter((l) => l.compatible);
 			if (compatible.length === 0) {
@@ -579,7 +581,7 @@ export class ImageGenPane implements AppPane {
 	async checkHealth(_verbose: boolean): Promise<void> {
 		const url = this.imageUrl();
 		try {
-			const h = await pingServer(url);
+			const h = await this.plugin.api.image.pingForGenerate(url);
 			const ready = !!(h.ready_to_generate || h.ready);
 			const loading = !!h.loading;
 			const model = h.model ?? h.config?.model ?? DEFAULT_MODEL_LABEL;

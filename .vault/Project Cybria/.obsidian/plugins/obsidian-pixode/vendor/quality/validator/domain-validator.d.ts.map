@@ -1,0 +1,1 @@
+{"version":3,"file":"domain-validator.d.ts","sourceRoot":"","sources":["domain-validator.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EACV,UAAU,EACV,iBAAiB,EACjB,kBAAkB,EAClB,gBAAgB,EACjB,MAAM,oBAAoB,CAAC;AAE5B,YAAY,EAAE,UAAU,EAAE,iBAAiB,EAAE,CAAC;AA4J9C,wBAAgB,mBAAmB,CACjC,GAAG,EAAE,kBAAkB,EACvB,UAAU,GAAE,UAAU,EAAO,GAC5B,gBAAgB,CAUlB"}

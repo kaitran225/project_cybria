@@ -1,4 +1,5 @@
-import { apiBase, parseError } from "../http";
+import { parseError } from "../http";
+import { ServiceClient } from "./base";
 
 export interface ChatMessage {
 	role: "system" | "user" | "assistant";
@@ -48,31 +49,17 @@ async function* readSseStream(res: Response): AsyncGenerator<string> {
 	}
 }
 
-export class LlmClient {
-	constructor(private readonly defaultUrl: string) {}
-
+export class LlmClient extends ServiceClient {
 	async ping(baseUrl = this.defaultUrl): Promise<LlmHealth> {
-		const res = await fetch(`${apiBase(baseUrl)}/health`);
-		if (!res.ok) throw new Error(`LLM server not reachable (${res.status})`);
-		return (await res.json()) as LlmHealth;
+		return this.pingHealth<LlmHealth>(baseUrl);
 	}
 
 	async loadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/models/load`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Load failed (${res.status})`));
+		return this.postLoadModel(modelId, baseUrl);
 	}
 
 	async downloadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/download`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Download failed (${res.status})`));
+		return this.postDownload(modelId, baseUrl);
 	}
 
 	async *streamChat(
@@ -87,7 +74,7 @@ export class LlmClient {
 		}
 		apiMessages.push(...messages);
 
-		const res = await fetch(`${apiBase(baseUrl)}/v1/chat/completions`, {
+		const res = await fetch(`${this.url(baseUrl)}/v1/chat/completions`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({

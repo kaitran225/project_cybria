@@ -1,0 +1,1 @@
+{"version":3,"file":"raster.d.ts","sourceRoot":"","sources":["raster.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EACV,kBAAkB,EAGlB,WAAW,EACX,UAAU,EACV,aAAa,EACb,aAAa,EACd,MAAM,oBAAoB,CAAC;AAE5B,YAAY,EAAE,WAAW,EAAE,UAAU,EAAE,aAAa,EAAE,aAAa,EAAE,CAAC;AA6DtE;;;;GAIG;AACH,wBAAgB,eAAe,CAAC,GAAG,EAAE,kBAAkB,GAAG,aAAa,CA6BtE"}

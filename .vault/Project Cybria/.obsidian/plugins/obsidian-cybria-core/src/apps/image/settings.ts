@@ -1,6 +1,5 @@
 export interface ImageGenSettings {
 	outputFolder: string;
-	modelId: string;
 	aspectRatio: string;
 	width: number;
 	height: number;
@@ -15,7 +14,6 @@ export interface ImageGenSettings {
 
 export const DEFAULT_SETTINGS: ImageGenSettings = {
 	outputFolder: "Generated/Images",
-	modelId: "qwen-lightning",
 	aspectRatio: "1:1",
 	width: 512,
 	height: 512,

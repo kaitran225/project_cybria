@@ -36,24 +36,32 @@ export async function migrateSatelliteSettings(
 	app: App,
 	current: Partial<CybriaCoreSettings>
 ): Promise<CybriaCoreSettings> {
+	const profileId = current.hardwareProfile ?? DEFAULT_SETTINGS.hardwareProfile;
+	const rawImage = (current.image ?? {}) as CybriaCoreSettings["image"] & { modelId?: string };
+	const { modelId: legacyImageModelId, ...imageRest } = rawImage;
+
 	const merged: CybriaCoreSettings = {
 		...DEFAULT_SETTINGS,
 		...current,
-		hardwareProfile: current.hardwareProfile ?? DEFAULT_SETTINGS.hardwareProfile,
+		hardwareProfile: profileId,
 		activeModels: remapActiveModels(
 			{ ...DEFAULT_SETTINGS.activeModels, ...(current.activeModels ?? {}) },
-			current.hardwareProfile ?? DEFAULT_SETTINGS.hardwareProfile
+			profileId
 		),
 		llm: { ...DEFAULT_SETTINGS.llm, ...(current.llm ?? {}) },
 		novel: { ...DEFAULT_SETTINGS.novel, ...(current.novel ?? {}) },
 		audio: { ...DEFAULT_SETTINGS.audio, ...(current.audio ?? {}) },
-		image: { ...DEFAULT_SETTINGS.image, ...(current.image ?? {}) },
+		image: { ...DEFAULT_SETTINGS.image, ...imageRest },
 		imageRecentOutputs: current.imageRecentOutputs ?? DEFAULT_SETTINGS.imageRecentOutputs,
 		modelPaths: {
 			...EMPTY_MODEL_PATHS,
 			...(current.modelPaths ?? {}),
 		},
 	};
+
+	if (legacyImageModelId) {
+		merged.activeModels.image = legacyImageModelId;
+	}
 
 	if ((merged.activeViewTab as string) === "models") {
 		merged.activeViewTab = "servers";
@@ -80,8 +88,14 @@ export async function migrateSatelliteSettings(
 		(await readPluginData(app, "image-gen")) ??
 		(await readPluginData(app, "obsidian-image-gen"));
 	if (imageData) {
-		const { recentOutputs, migratedFast512, ...rest } = imageData as Record<string, unknown>;
+		const { recentOutputs, migratedFast512, modelId, ...rest } = imageData as Record<
+			string,
+			unknown
+		> & { modelId?: string };
 		Object.assign(merged.image, rest);
+		if (typeof modelId === "string" && modelId) {
+			merged.activeModels.image = modelId;
+		}
 		if (Array.isArray(recentOutputs)) {
 			merged.imageRecentOutputs = recentOutputs as CybriaCoreSettings["imageRecentOutputs"];
 		}

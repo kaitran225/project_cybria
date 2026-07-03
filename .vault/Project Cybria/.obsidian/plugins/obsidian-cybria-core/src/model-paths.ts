@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import * as path from "path";
 import type { ModelPathsConfig } from "./settings";
 import { EMPTY_MODEL_PATHS } from "./settings";
+import { repoRootFromVault, repoRootFromTools } from "./vault";
 
 export type { ModelPathsConfig };
 export { EMPTY_MODEL_PATHS };
+export { repoRootFromVault, repoRootFromTools };
 
 export function derivedModelPaths(root: string): ModelPathsConfig {
 	const base = root.replace(/[/\\]+$/, "");
@@ -68,14 +70,6 @@ export function syncModelPathsFile(repoRoot: string, paths: ModelPathsConfig): v
 	const dir = path.dirname(configPath);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	writeFileSync(configPath, `${JSON.stringify(paths, null, 2)}\n`, "utf-8");
-}
-
-export function repoRootFromVault(vaultBasePath: string): string {
-	return path.dirname(path.dirname(vaultBasePath));
-}
-
-export function repoRootFromTools(toolsDir: string): string {
-	return path.dirname(path.dirname(toolsDir));
 }
 
 export function modelPathEnv(paths: ModelPathsConfig): NodeJS.ProcessEnv {

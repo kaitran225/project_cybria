@@ -1,5 +1,5 @@
 import { Notice, setIcon } from "obsidian";
-import type { ChatMessage } from "../../api";
+import type { ChatMessage } from "../../clients/llm";
 import type CybriaCorePlugin from "../../main";
 import type { AppPane } from "../types";
 
@@ -80,7 +80,7 @@ export class LlmPane implements AppPane {
 	}
 
 	private llmUrl(): string {
-		return this.plugin.api.serverUrl("llm");
+		return this.plugin.api.serviceUrl("llm");
 	}
 
 	private activeModelId(): string {
@@ -149,7 +149,7 @@ export class LlmPane implements AppPane {
 		const s = this.plugin.settings.llm;
 		let full = "";
 		try {
-			await this.plugin.api.llm.loadModel(this.activeModelId(), this.llmUrl());
+			await this.plugin.api.ensureModelLoaded("llm");
 			for await (const chunk of this.plugin.api.llm.streamChat(
 				this.messages,
 				{

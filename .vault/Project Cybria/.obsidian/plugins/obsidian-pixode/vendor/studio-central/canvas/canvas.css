@@ -1,0 +1,42 @@
+.pixel-canvas-wrap {
+  line-height: 0;
+  flex-shrink: 0;
+}
+
+.pixel-canvas {
+  display: block;
+  background: transparent;
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs, 4px);
+}
+
+.selection-bar button {
+  padding: 0.15rem 0.45rem;
+  font-size: var(--text-xs, 11px);
+  font-family: var(--font-mono, monospace);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 2px);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.selection-bar button:hover {
+  background: var(--surface-elevated);
+  border-color: var(--accent-muted);
+}
+
+.selection-bar button:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.selection-bar-sep {
+  width: 1px;
+  height: 1rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+}

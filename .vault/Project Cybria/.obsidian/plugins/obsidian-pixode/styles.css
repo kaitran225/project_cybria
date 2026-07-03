@@ -1,0 +1,137 @@
+.pixode-view-host,
+.pixode-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pixode-root {
+  flex-direction: row;
+}
+
+.pixode-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pixode-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pixode-sidebar-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.pixode-btn {
+  font-size: var(--font-ui-smaller);
+  padding: 2px 8px;
+}
+
+.pixode-asset-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.pixode-asset-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.pixode-asset-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pixode-asset-item.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pixode-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pixode-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pixode-save-status {
+  margin-left: auto;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.pixode-canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-secondary);
+}
+
+.pixode-palette {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  flex-wrap: wrap;
+}
+
+.pixode-swatch {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pixode-swatch.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.pixode-empty,
+.pixode-loading,
+.pixode-error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+}
+
+.pixode-error {
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-error);
+}

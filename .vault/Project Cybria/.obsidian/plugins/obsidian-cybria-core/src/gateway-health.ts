@@ -1,5 +1,3 @@
-import type { CybriaServiceKey } from "./servers";
-
 export type ServiceHealthState = "offline" | "stopped" | "loading" | "ready" | "error";
 
 export interface ParsedServiceHealth {
@@ -76,4 +74,42 @@ export function serviceHealthClass(state: ServiceHealthState): string {
 	return `ccore-svc-${state}`;
 }
 
-export const SERVICE_ORDER: CybriaServiceKey[] = ["llm", "summarize", "tts", "image"];
+export type SlotHealthPatch = {
+	status: "idle" | "loading" | "ready" | "error";
+	loadedModelId: string | null;
+	error: string | null;
+};
+
+/** Map gateway /health service snapshot → model-switcher slot fields. */
+export function gatewayHealthToSlotState(
+	parsed: ParsedServiceHealth,
+	activeModelId: string
+): SlotHealthPatch {
+	switch (parsed.state) {
+		case "ready": {
+			const loaded =
+				parsed.model !== "—" ? parsed.model : activeModelId;
+			return { status: "ready", loadedModelId: loaded, error: null };
+		}
+		case "loading":
+			return {
+				status: "loading",
+				loadedModelId: parsed.model !== "—" ? parsed.model : null,
+				error: null,
+			};
+		case "error":
+			return {
+				status: "error",
+				loadedModelId: parsed.model !== "—" ? parsed.model : null,
+				error: parsed.detail || "Error",
+			};
+		case "offline":
+		case "stopped":
+		default:
+			return {
+				status: "idle",
+				loadedModelId: parsed.model !== "—" ? parsed.model : null,
+				error: null,
+			};
+	}
+}

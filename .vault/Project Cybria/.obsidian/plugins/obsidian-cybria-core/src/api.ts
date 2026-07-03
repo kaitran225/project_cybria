@@ -24,16 +24,8 @@ import {
 	type CybriaServiceKey,
 	type CybriaServerKey,
 } from "./servers";
+import { ensureGatewayRunning, type EnsureGatewayOptions } from "./gateway";
 import { repoRootFromApp, vaultBasePath } from "./vault";
-
-export type { ChatMessage, ChatOptions, LlmHealth } from "./clients/llm";
-export type { CatalogModel, ModelSlot } from "./catalog";
-export type { ModelPathsConfig } from "./model-paths";
-export type { CybriaServiceKey, CybriaServerKey } from "./servers";
-export type { CybriaServerRunner, ReqCheckResult, ServerEnvExtra } from "./server-runner";
-export type { SlotState, SwitchStatus } from "./model-switcher";
-export { CYBRIA_BASE_URL, CYBRIA_CORE_ID, CYBRIA_PORT, GATEWAY_TOOLS } from "./servers";
-export { SLOT_LABELS, MODEL_CATALOG } from "./catalog";
 
 export type SaveActiveModelFn = (slot: ModelSlot, modelId: string) => Promise<void>;
 export type GetActiveModelsFn = () => Record<ModelSlot, string>;
@@ -76,11 +68,6 @@ export class CybriaCoreApi {
 	/** Service API base, e.g. http://127.0.0.1:2253/llm */
 	serviceUrl(service: CybriaServiceKey): string {
 		return `${this.baseUrl()}${SERVICE_PATHS[service]}`;
-	}
-
-	/** @deprecated Use serviceUrl(service) */
-	serverUrl(service: CybriaServiceKey): string {
-		return this.serviceUrl(service);
 	}
 
 	appendLog(line: string): void {
@@ -155,6 +142,42 @@ export class CybriaCoreApi {
 		} catch {
 			/* gateway offline */
 		}
+	}
+
+	async ensureGatewayRunning(opts: EnsureGatewayOptions = {}): Promise<void> {
+		return ensureGatewayRunning(this, opts);
+	}
+
+	async ensureModelLoaded(
+		slot: ModelSlot,
+		opts?: { ensureServer?: boolean; onLog?: (line: string) => void }
+	): Promise<void> {
+		return this.switcher.ensureModelLoaded(slot, opts);
+	}
+
+	async downloadModel(
+		service: CybriaServiceKey,
+		modelId: string,
+		onLog?: (line: string) => void
+	): Promise<void> {
+		const log = onLog ?? ((line: string) => this.appendLog(line));
+		if (service === "llm") {
+			await this.serviceRunner(SERVICE_TOOLS.llm).downloadModel(
+				this.resolveToolsDir("llm"),
+				modelId,
+				log
+			);
+			return;
+		}
+		if (service === "summarize") {
+			await this.summarize.downloadModel(modelId, this.serviceUrl("summarize"));
+			return;
+		}
+		if (service === "tts") {
+			await this.tts.downloadModel(modelId, this.serviceUrl("tts"));
+			return;
+		}
+		throw new Error(`Download not supported for ${service}`);
 	}
 
 	/** Runner for per-service venv install/download (not the gateway process). */

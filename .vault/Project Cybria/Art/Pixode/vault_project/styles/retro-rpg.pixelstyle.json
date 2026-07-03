@@ -1,0 +1,65 @@
+{
+  "id": "retro_rpg",
+  "version": "1.0.0",
+  "name": "Retro RPG",
+  "outline": true,
+  "maxColors": 12,
+  "shadowStyle": "hard",
+  "palette": [
+    {
+      "id": 0,
+      "hex": "#1a1c2c",
+      "role": "outline"
+    },
+    {
+      "id": 1,
+      "hex": "#5d275d"
+    },
+    {
+      "id": 2,
+      "hex": "#b13e53"
+    },
+    {
+      "id": 3,
+      "hex": "#ef7d57"
+    },
+    {
+      "id": 4,
+      "hex": "#ffcd75"
+    },
+    {
+      "id": 5,
+      "hex": "#a7f070"
+    },
+    {
+      "id": 6,
+      "hex": "#38b764"
+    },
+    {
+      "id": 7,
+      "hex": "#257179"
+    },
+    {
+      "id": 8,
+      "hex": "#29366f"
+    },
+    {
+      "id": 9,
+      "hex": "#3b5dc9"
+    },
+    {
+      "id": 10,
+      "hex": "#41a6f6"
+    },
+    {
+      "id": 11,
+      "hex": "#73eff7"
+    }
+  ],
+  "canvasConstraints": {
+    "minWidth": 8,
+    "maxWidth": 512,
+    "minHeight": 8,
+    "maxHeight": 512
+  }
+}

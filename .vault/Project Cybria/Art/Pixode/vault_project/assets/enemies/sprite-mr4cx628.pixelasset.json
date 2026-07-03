@@ -1,0 +1,81 @@
+{
+  "format": "pixel-asset",
+  "version": "0.3.0",
+  "id": "sprite_mr4cx628",
+  "type": "sprite",
+  "canvas": {
+    "width": 16,
+    "height": 16
+  },
+  "palette": [
+    {
+      "id": 0,
+      "hex": "#1a1c2c",
+      "role": "outline"
+    },
+    {
+      "id": 1,
+      "hex": "#5d275d"
+    },
+    {
+      "id": 2,
+      "hex": "#b13e53"
+    },
+    {
+      "id": 3,
+      "hex": "#ef7d57"
+    },
+    {
+      "id": 4,
+      "hex": "#ffcd75"
+    },
+    {
+      "id": 5,
+      "hex": "#a7f070"
+    },
+    {
+      "id": 6,
+      "hex": "#38b764"
+    },
+    {
+      "id": 7,
+      "hex": "#257179"
+    },
+    {
+      "id": 8,
+      "hex": "#29366f"
+    },
+    {
+      "id": 9,
+      "hex": "#3b5dc9"
+    },
+    {
+      "id": 10,
+      "hex": "#41a6f6"
+    },
+    {
+      "id": 11,
+      "hex": "#73eff7"
+    }
+  ],
+  "layers": [
+    {
+      "id": "base",
+      "name": "Base",
+      "visible": true,
+      "pixels": []
+    }
+  ],
+  "regions": [],
+  "animations": {
+    "states": [],
+    "transitions": []
+  },
+  "design": {},
+  "metadata": {
+    "tags": []
+  },
+  "styleRef": {
+    "styleId": "retro_rpg"
+  }
+}

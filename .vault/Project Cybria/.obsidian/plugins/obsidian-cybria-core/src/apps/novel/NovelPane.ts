@@ -126,8 +126,8 @@ export class NovelPane implements AppPane {
 		try {
 			const api = this.plugin.api;
 			const novelModel = api.switcher.getActiveModel("novel");
-			const llmUrl = api.serverUrl("llm");
-			await api.llm.loadModel(novelModel, llmUrl);
+			const llmUrl = api.serviceUrl("llm");
+			await api.ensureModelLoaded("novel");
 			let full = "";
 			for await (const chunk of api.llm.streamContinue(
 				text,
@@ -156,7 +156,7 @@ export class NovelPane implements AppPane {
 		this.summarizeOutputEl.setText("Summarizing…");
 		try {
 			const api = this.plugin.api;
-			const sumUrl = api.serverUrl("summarize");
+			const sumUrl = api.serviceUrl("summarize");
 			const h = await api.summarize.ping(sumUrl);
 			if (!h.ready) throw new Error("Summarize server not ready — open Cybria AI → Servers");
 			const summary = await api.summarize.summarize(

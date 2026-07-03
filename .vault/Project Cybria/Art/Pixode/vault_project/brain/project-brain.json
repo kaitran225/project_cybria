@@ -1,0 +1,62 @@
+{
+  "id": "vault_project",
+  "version": "1.0.0",
+  "lore": [],
+  "factions": [
+    {
+      "id": "nature",
+      "name": "Nature Spirits",
+      "tags": [
+        "forest"
+      ]
+    }
+  ],
+  "races": [
+    {
+      "id": "slime",
+      "name": "Slime",
+      "factionId": "nature"
+    }
+  ],
+  "visualLanguage": {
+    "outlineRequired": true,
+    "maxColorsPerAsset": 12,
+    "silhouetteRules": [
+      "readable at 16x16",
+      "clear outline"
+    ]
+  },
+  "artRules": [
+    {
+      "id": "outline_rule",
+      "rule": "All sprites must have 1px outline",
+      "severity": "error"
+    }
+  ],
+  "naming": {
+    "assetIdPattern": "{theme}_{species}",
+    "tagPrefixes": {
+      "enemy": "enm",
+      "npc": "npc"
+    }
+  },
+  "biomePalettes": {
+    "forest": [
+      {
+        "id": 0,
+        "hex": "#1a1c2c",
+        "role": "outline"
+      },
+      {
+        "id": 1,
+        "hex": "#38b764",
+        "role": "fill"
+      },
+      {
+        "id": 2,
+        "hex": "#a7f070",
+        "role": "highlight"
+      }
+    ]
+  }
+}

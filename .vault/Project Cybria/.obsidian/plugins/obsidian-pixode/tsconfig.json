@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "target": "ES2018",
+    "moduleResolution": "node",
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+    "lib": ["DOM", "ES2018"],
+    "paths": {
+      "@pixode/studio-central/*": ["vendor/studio-central/*"],
+      "@pixode/asset-core": ["vendor/asset-core/index.ts"],
+      "@pixode/asset-core/*": ["vendor/asset-core/*"],
+      "@pixode/design": ["vendor/design/src/index.ts"],
+      "@pixode/design/*": ["vendor/design/src/*"],
+      "@pixode/quality": ["vendor/quality/index.ts"],
+      "@pixode/quality/*": ["vendor/quality/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

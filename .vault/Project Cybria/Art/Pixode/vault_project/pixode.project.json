@@ -1,0 +1,15 @@
+{
+  "id": "vault_project",
+  "name": "Vault Pixode",
+  "version": "1.0.0",
+  "brainPath": "brain",
+  "defaultStyleId": "retro_rpg",
+  "assetCatalog": [
+    {
+      "assetId": "sprite_mr4cx628",
+      "path": "assets/enemies/sprite-mr4cx628.pixelasset.json",
+      "category": "enemy",
+      "status": "draft"
+    }
+  ]
+}

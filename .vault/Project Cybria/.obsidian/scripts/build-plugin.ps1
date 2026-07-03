@@ -83,6 +83,24 @@ Invoke-PluginBuild "obsidian-cybria-core" {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     npm run build
 }
+
+Invoke-PluginBuild "obsidian-pixode" {
+    npm install
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+}
+
+Invoke-PluginBuild "obsidian-cote-studio" {
+    npm install --legacy-peer-deps
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+    $pluginDir = Get-Location
+    $replChunk = Join-Path $pluginDir "repl-chunk.js"
+    if (-not (Test-Path $replChunk)) {
+        throw "obsidian-cote-studio build missing repl-chunk.js (required when Full Strudel REPL is enabled)"
+    }
+    Write-Host "Verified main.js + repl-chunk.js" -ForegroundColor DarkGray
+}
 Write-Host "`nAll plugins built successfully." -ForegroundColor Green
 
 

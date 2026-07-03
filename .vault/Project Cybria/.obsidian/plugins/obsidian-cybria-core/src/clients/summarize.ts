@@ -1,16 +1,13 @@
-import { apiBase, parseError } from "../http";
+import { parseError } from "../http";
+import { ServiceClient } from "./base";
 
-export class SummarizeClient {
-	constructor(private readonly defaultUrl: string) {}
-
+export class SummarizeClient extends ServiceClient {
 	async ping(baseUrl = this.defaultUrl): Promise<{ ready?: boolean; error?: string }> {
-		const res = await fetch(`${apiBase(baseUrl)}/health`);
-		if (!res.ok) throw new Error(`Summarize server not reachable (${res.status})`);
-		return (await res.json()) as { ready?: boolean; error?: string };
+		return this.pingHealth(baseUrl);
 	}
 
 	async summarize(text: string, modelId: string, baseUrl = this.defaultUrl): Promise<string> {
-		const res = await fetch(`${apiBase(baseUrl)}/summarize`, {
+		const res = await fetch(`${this.url(baseUrl)}/summarize`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ text, model_id: modelId }),
@@ -21,20 +18,10 @@ export class SummarizeClient {
 	}
 
 	async downloadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/download`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Download failed (${res.status})`));
+		return this.postDownload(modelId, baseUrl);
 	}
 
 	async loadModel(modelId: string, baseUrl = this.defaultUrl): Promise<void> {
-		const res = await fetch(`${apiBase(baseUrl)}/models/load`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model_id: modelId }),
-		});
-		if (!res.ok) throw new Error(await parseError(res, `Load failed (${res.status})`));
+		return this.postLoadModel(modelId, baseUrl);
 	}
 }

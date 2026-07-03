@@ -1,0 +1,9 @@
+{
+	"id": "cote-studio",
+	"name": "Cote Studio",
+	"version": "0.1.1",
+	"minAppVersion": "1.5.0",
+	"description": "Strudel live-coding in Obsidian — vault .strudel patterns, live playback, optional full REPL.",
+	"author": "Project Cybria",
+	"isDesktopOnly": true
+}

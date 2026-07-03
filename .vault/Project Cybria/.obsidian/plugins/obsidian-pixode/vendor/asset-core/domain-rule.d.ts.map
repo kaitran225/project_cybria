@@ -1,0 +1,1 @@
+{"version":3,"file":"domain-rule.d.ts","sourceRoot":"","sources":["domain-rule.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,kBAAkB,EAAE,eAAe,EAAE,MAAM,YAAY,CAAC;AAEtE,MAAM,WAAW,iBAAiB;IAChC,GAAG,EAAE,kBAAkB,CAAC;IACxB,MAAM,EAAE,eAAe,EAAE,CAAC;IAC1B,QAAQ,EAAE,eAAe,EAAE,CAAC;CAC7B;AAED,MAAM,MAAM,UAAU,GAAG,CAAC,GAAG,EAAE,iBAAiB,KAAK,IAAI,CAAC"}

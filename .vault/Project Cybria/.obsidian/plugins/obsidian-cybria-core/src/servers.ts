@@ -31,26 +31,4 @@ export const SERVICE_TOOLS: Record<CybriaServiceKey, string> = {
 	image: "qwen-image",
 };
 
-/** @deprecated Use CYBRIA_BASE_URL + SERVICE_PATHS */
-export const CYBRIA_SERVERS = {
-	gateway: {
-		id: "gateway",
-		toolsSubdir: GATEWAY_TOOLS,
-		defaultUrl: CYBRIA_BASE_URL,
-		port: CYBRIA_PORT,
-	},
-	llm: { id: "llm", toolsSubdir: SERVICE_TOOLS.llm, defaultUrl: `${CYBRIA_BASE_URL}/llm`, port: CYBRIA_PORT },
-	summarize: {
-		id: "summarize",
-		toolsSubdir: SERVICE_TOOLS.summarize,
-		defaultUrl: `${CYBRIA_BASE_URL}/summarize`,
-		port: CYBRIA_PORT,
-	},
-	tts: { id: "tts", toolsSubdir: SERVICE_TOOLS.tts, defaultUrl: `${CYBRIA_BASE_URL}/tts`, port: CYBRIA_PORT },
-	image: {
-		id: "image",
-		toolsSubdir: SERVICE_TOOLS.image,
-		defaultUrl: `${CYBRIA_BASE_URL}/image`,
-		port: CYBRIA_PORT,
-	},
-} as const;
+export const ALL_SERVICES: CybriaServiceKey[] = ["llm", "summarize", "tts", "image"];

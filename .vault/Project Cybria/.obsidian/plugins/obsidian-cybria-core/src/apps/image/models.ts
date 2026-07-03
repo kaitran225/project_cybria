@@ -1,3 +1,5 @@
+import type { CatalogModel } from "../../catalog";
+
 export interface ModelInfo {
 	id: string;
 	name: string;
@@ -18,38 +20,29 @@ export interface ModelCatalog {
 	loaded?: string | null;
 }
 
-/** Mirrors server [models.py](.tools/qwen-image/models.py) — used when server is offline. */
-export const BUILTIN_MODELS: ModelInfo[] = [
-	{
-		id: "qwen-lightning",
-		name: "Qwen Image (Lightning)",
-		repo_id: "unsloth/Qwen-Image-2512-unsloth-bnb-4bit",
-		family: "qwen",
-		lightning: true,
-		default_steps: 8,
-		default_cfg: 1.0,
-		default_size: 512,
-		max_side: 512,
-		source: "builtin",
-		note: "Fast — best for 8GB VRAM",
-	},
-	{
-		id: "heartsync-nsfw",
-		name: "Heartsync NSFW Uncensored",
-		repo_id: "Heartsync/NSFW-Uncensored",
-		family: "sdxl",
-		lightning: false,
-		default_steps: 25,
-		default_cfg: 7.5,
-		default_size: 768,
-		max_side: 768,
-		source: "huggingface",
-		note: "SDXL — first load downloads from Hugging Face (~6 GB)",
-	},
-];
+export function imageModelsFromCatalog(entries: CatalogModel[]): ModelInfo[] {
+	return entries
+		.filter(
+			(e): e is CatalogModel & { imageParams: NonNullable<CatalogModel["imageParams"]> } =>
+				e.slot === "image" && !!e.imageParams
+		)
+		.map((e) => ({
+			id: e.id,
+			name: e.name,
+			repo_id: e.imageParams.repo_id ?? e.id,
+			family: e.imageParams.family,
+			lightning: e.imageParams.lightning,
+			default_steps: e.imageParams.default_steps,
+			default_cfg: e.imageParams.default_cfg,
+			default_size: e.imageParams.default_size,
+			max_side: e.imageParams.max_side,
+			source: "catalog",
+			note: e.note ?? null,
+		}));
+}
 
-export function modelsForPicker(catalog: ModelInfo[]): ModelInfo[] {
-	return catalog.length > 0 ? catalog : BUILTIN_MODELS;
+export function modelsForPicker(catalog: ModelInfo[], fallback: ModelInfo[] = []): ModelInfo[] {
+	return catalog.length > 0 ? catalog : fallback;
 }
 
 export function modelSupportsLora(family: string): boolean {

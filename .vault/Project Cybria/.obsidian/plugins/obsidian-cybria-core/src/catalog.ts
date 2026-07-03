@@ -3,7 +3,19 @@ import type { CybriaServiceKey } from "./servers";
 /** Logical slot in the switcher UI (novel shares the llm server). */
 export type ModelSlot = "llm" | "novel" | "summarize" | "tts" | "image";
 
+export const ALL_MODEL_SLOTS: ModelSlot[] = ["llm", "novel", "summarize", "tts", "image"];
+
 export type VramClass = "heavy" | "light";
+
+export interface ImageGenParams {
+	default_steps: number;
+	default_cfg: number;
+	default_size: number;
+	max_side: number;
+	family: string;
+	lightning: boolean;
+	repo_id?: string;
+}
 
 export interface CatalogModel {
 	id: string;
@@ -16,6 +28,7 @@ export interface CatalogModel {
 	minRamGb?: number;
 	sizeGb?: number;
 	note?: string;
+	imageParams?: ImageGenParams;
 }
 
 export const MODEL_CATALOG: CatalogModel[] = [
@@ -148,6 +161,15 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		minRamGb: 8,
 		sizeGb: 2,
 		note: "Lightweight SD1.5 — fast on 4GB",
+		imageParams: {
+			repo_id: "Lykon/DreamShaper",
+			family: "sd15",
+			lightning: false,
+			default_steps: 20,
+			default_cfg: 7,
+			default_size: 512,
+			max_side: 512,
+		},
 	},
 	{
 		id: "qwen-lightning",
@@ -159,6 +181,15 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		minVramGb: 8,
 		minRamGb: 16,
 		note: "Fast image gen — 8GB tuned",
+		imageParams: {
+			repo_id: "unsloth/Qwen-Image-2512-unsloth-bnb-4bit",
+			family: "qwen",
+			lightning: true,
+			default_steps: 8,
+			default_cfg: 1.0,
+			default_size: 512,
+			max_side: 512,
+		},
 	},
 	{
 		id: "heartsync-nsfw",
@@ -170,6 +201,15 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		minVramGb: 6,
 		minRamGb: 16,
 		note: "SDXL — slow on 4GB (6GB+ VRAM)",
+		imageParams: {
+			repo_id: "Heartsync/NSFW-Uncensored",
+			family: "sdxl",
+			lightning: false,
+			default_steps: 25,
+			default_cfg: 7.5,
+			default_size: 768,
+			max_side: 768,
+		},
 	},
 	{
 		id: "nsfw-gen-v2",
@@ -182,6 +222,15 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		minRamGb: 16,
 		sizeGb: 6,
 		note: "SDXL — slow on 4GB (6GB+ VRAM)",
+		imageParams: {
+			repo_id: "Heartsync/NSFW-Uncensored",
+			family: "sdxl",
+			lightning: false,
+			default_steps: 25,
+			default_cfg: 7.5,
+			default_size: 768,
+			max_side: 768,
+		},
 	},
 ];
 

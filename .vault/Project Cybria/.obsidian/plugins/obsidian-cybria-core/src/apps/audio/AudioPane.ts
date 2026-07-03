@@ -62,7 +62,7 @@ export class AudioPane implements AppPane {
 	}
 
 	private ttsUrl(): string {
-		return this.plugin.api.serverUrl("tts");
+		return this.plugin.api.serviceUrl("tts");
 	}
 
 	private setStatus(state: "ready" | "loading" | "offline", text: string): void {

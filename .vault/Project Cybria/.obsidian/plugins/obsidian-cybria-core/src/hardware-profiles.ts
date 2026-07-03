@@ -1,5 +1,4 @@
-import type { CatalogModel, ModelSlot } from "./catalog";
-import { MODEL_CATALOG } from "./catalog";
+import { ALL_MODEL_SLOTS, MODEL_CATALOG, type CatalogModel, type ModelSlot } from "./catalog";
 
 export type HardwareProfileId = "kai-note" | "kyroth-workstation";
 
@@ -106,10 +105,9 @@ export function remapActiveModelsForProfile(
 	profileId: string | undefined
 ): Record<ModelSlot, string> {
 	const profile = getHardwareProfile(profileId);
-	const slots = ["llm", "novel", "summarize", "tts", "image"] as ModelSlot[];
 	const out = { ...active };
 
-	for (const slot of slots) {
+	for (const slot of ALL_MODEL_SLOTS) {
 		const id = out[slot];
 		const model = MODEL_CATALOG.find((m) => m.id === id);
 		if (model && isModelVisibleForProfile(model, profile)) continue;
@@ -122,8 +120,3 @@ export function remapActiveModelsForProfile(
 
 export const DEFAULT_ACTIVE_MODELS: Record<ModelSlot, string> =
 	HARDWARE_PROFILES[DEFAULT_HARDWARE_PROFILE].defaultActiveModels;
-
-/** @deprecated Use catalogForProfile */
-export function catalogForSlot(slot: ModelSlot, profileId?: string): CatalogModel[] {
-	return catalogForProfile(slot, profileId);
-}
