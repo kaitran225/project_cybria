@@ -1,5 +1,5 @@
 import { setIcon } from "obsidian";
-import { renderTerminalLine, shouldSkipTerminalLine } from "./terminal-ansi";
+import { renderTerminalLine } from "./terminal-ansi";
 import type CybriaCorePlugin from "./main";
 
 export class TerminalPanel {
@@ -36,7 +36,6 @@ export class TerminalPanel {
 		while (this.terminalRendered < lines.length) {
 			const line = lines[this.terminalRendered]!;
 			this.terminalRendered++;
-			if (shouldSkipTerminalLine(line)) continue;
 			renderTerminalLine(this.terminalEl, line);
 		}
 		this.terminalEl.scrollTop = this.terminalEl.scrollHeight;

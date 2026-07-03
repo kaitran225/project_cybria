@@ -44,34 +44,23 @@ class LineBuffer {
 	}
 }
 
-/** Attach stdout+stderr of a process to a log sink. Uvicorn INFO on stderr is not an error. */
+/** Attach stdout+stderr of a process to a log sink (no filtering). */
 function pipeProcess(
 	proc: import("child_process").ChildProcess,
 	onLine: (line: string) => void,
-	label: string
+	_label: string
 ): void {
-	const tag = label === "gateway" ? "gateway" : label;
-	const emit = (line: string, asError = false): void => {
-		const t = line.trim();
-		if (!t) return;
-		if (/^\[[\w-]+\]/.test(t)) {
-			onLine(asError && !/^(INFO|WARNING):/i.test(t) ? `⟨err⟩ ${t}` : t);
-			return;
-		}
-		const tagged = `[${tag}] ${t}`;
-		onLine(asError && !/^(INFO|WARNING):/i.test(t) ? `⟨err⟩ ${tagged}` : tagged);
-	};
-	const out = new LineBuffer((l) => emit(l));
-	const err = new LineBuffer((l) => emit(l, true));
+	const out = new LineBuffer(onLine);
+	const err = new LineBuffer(onLine);
 	proc.stdout?.setEncoding("utf-8");
 	proc.stderr?.setEncoding("utf-8");
 	proc.stdout?.on("data", (c: string) => out.push(c));
 	proc.stderr?.on("data", (c: string) => err.push(c));
-	proc.on("error", (e) => onLine(`[${tag}] spawn error: ${e.message}`));
+	proc.on("error", (e) => onLine(`spawn error: ${e.message}`));
 	proc.on("close", (code, signal) => {
 		out.flush();
 		err.flush();
-		onLine(`[${tag}] exited (code ${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
+		onLine(`[exit ${code ?? "?"}${signal ? `, signal ${signal}` : ""}]`);
 	});
 }
 
@@ -170,10 +159,7 @@ export class CybriaServerRunner {
 			const proc = spawn(cmd, args, { cwd, windowsHide: true, env });
 			onLine(`  pid: ${proc.pid ?? "(failed to spawn)"}`);
 			const out = new LineBuffer(onLine);
-			const err = new LineBuffer((l) => {
-				if (/^(INFO|WARNING):/i.test(l)) onLine(l);
-				else onLine(`⟨err⟩ ${l}`);
-			});
+			const err = new LineBuffer(onLine);
 			proc.stdout?.setEncoding("utf-8");
 			proc.stderr?.setEncoding("utf-8");
 			proc.stdout?.on("data", (c: string) => out.push(c));
@@ -271,10 +257,7 @@ export class CybriaServerRunner {
 				onLine(l);
 				stdout += l + "\n";
 			});
-			const err = new LineBuffer((l) => {
-				if (/^(INFO|WARNING):/i.test(l)) onLine(l);
-				else onLine(`⟨err⟩ ${l}`);
-			});
+			const err = new LineBuffer(onLine);
 			proc.stdout?.setEncoding("utf-8");
 			proc.stderr?.setEncoding("utf-8");
 			proc.stdout?.on("data", (c: string) => out.push(c));
@@ -363,7 +346,12 @@ export class CybriaServerRunner {
 			return;
 		}
 		onLine("$ stopping server");
-		this.proc.kill();
+		// SIGKILL on Windows skips Python cleanup — prefer terminate for graceful shutdown.
+		try {
+			this.proc.kill("SIGTERM");
+		} catch {
+			this.proc.kill();
+		}
 		this.proc = null;
 	}
 }

@@ -48,6 +48,10 @@ export default class CybriaCorePlugin extends Plugin {
 		});
 	}
 
+	async onunload(): Promise<void> {
+		await this.api.shutdownOnExit();
+	}
+
 	getSwitcherView(): ModelSwitcherView | null {
 		const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_MODEL_SWITCHER)[0]?.view;
 		return view instanceof ModelSwitcherView ? view : null;

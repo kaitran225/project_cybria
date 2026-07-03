@@ -97,17 +97,6 @@ function appendBody(row: HTMLElement, line: string): void {
 	appendSpan(row, line.slice(last), classes);
 }
 
-const ACCESS_LOG_RE = /^INFO:\s+[\d.:]+\s+-\s+"(?:GET|POST|PUT|DELETE|PATCH|OPTIONS)\s+/i;
-
-/** Drop uvicorn per-request access lines, especially /health polling. */
-export function shouldSkipTerminalLine(line: string): boolean {
-	let body = line.startsWith("⟨err⟩ ") ? line.slice(6) : line;
-	body = body.replace(/^\[[\w-]+\]\s*/, "");
-	if (ACCESS_LOG_RE.test(body)) return true;
-	if (/\/health\b/i.test(body) && /\b(?:GET|POST)\b/i.test(body)) return true;
-	return false;
-}
-
 export function renderTerminalLine(parent: HTMLElement, line: string): void {
 	let isStderr = false;
 	if (line.startsWith("⟨err⟩ ")) {

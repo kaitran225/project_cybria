@@ -7,6 +7,7 @@ import { SERVICE_BLURBS, SERVICE_ICONS, SERVICE_LABELS } from "./server-labels";
 import {
 	ALL_SERVICES,
 	CYBRIA_PORT,
+	SERVICE_PATHS,
 	SERVICE_SLOT,
 	SERVICE_TOOLS,
 	type CybriaServiceKey,
@@ -49,6 +50,18 @@ export class ServersPanel {
 
 	private log(line: string): void {
 		this.callbacks.onLog(line);
+	}
+
+	private logMultiline(prefix: string, message: string): void {
+		const lines = message.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
+		if (lines.length === 0) {
+			this.log(prefix);
+			return;
+		}
+		this.log(`${prefix} ${lines[0]}`);
+		for (const line of lines.slice(1)) {
+			this.log(`  ${line}`);
+		}
 	}
 
 	private buildServerCards(): void {
@@ -96,8 +109,9 @@ export class ServersPanel {
 			const iconEl = titleWrap.createSpan("ccore-svc-icon");
 			setIcon(iconEl, SERVICE_ICONS[service]);
 			const titles = titleWrap.createDiv("ccore-svc-titles");
-			titles.createDiv("ccore-svc-title").setText(SERVICE_LABELS[service]);
-			titles.createDiv("ccore-svc-blurb").setText(SERVICE_BLURBS[service]);
+			const titleEl = titles.createDiv("ccore-svc-title");
+			titleEl.setText(SERVICE_LABELS[service]);
+			titleEl.setAttr("title", SERVICE_BLURBS[service]);
 
 			const statusWrap = top.createDiv("ccore-svc-status-wrap");
 			const dot = statusWrap.createSpan("ccore-svc-dot");
@@ -119,21 +133,21 @@ export class ServersPanel {
 			this.serviceCards.set(service, { card, dot, status, model, hint, select });
 
 			const actions = card.createDiv("ccore-svc-actions");
-			const primary = actions.createDiv("ccore-svc-actions-primary");
-			primary.createEl("button", { text: "Start", cls: "ccore-svc-btn ccore-svc-btn-start" }).onclick =
+			const btnRow = actions.createDiv("ccore-svc-actions-row");
+			btnRow.createEl("button", { text: "Start", cls: "ccore-svc-btn ccore-svc-btn-start" }).onclick =
 				() => void this.startService(service);
-			primary.createEl("button", { text: "Stop", cls: "ccore-svc-btn ccore-svc-btn-stop" }).onclick =
+			btnRow.createEl("button", { text: "Stop", cls: "ccore-svc-btn ccore-svc-btn-stop" }).onclick =
 				() => void this.stopService(service);
-
-			const tools = actions.createDiv("ccore-svc-actions-tools");
-			tools.createEl("button", { text: "Install", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+			btnRow.createEl("button", { text: "Install", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
 				() => void this.installServiceDeps(service);
 			if (service === "llm" || service === "summarize" || service === "tts") {
-				tools.createEl("button", { text: "Download", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
+				btnRow.createEl("button", { text: "Download", cls: "ccore-svc-btn ccore-svc-btn-tool" }).onclick =
 					() => void this.downloadModel(service);
 			}
 
-			card.createDiv("ccore-svc-url").setText(this.plugin.api.serviceUrl(service));
+			const urlEl = card.createDiv("ccore-svc-url");
+			urlEl.setAttr("title", this.plugin.api.serviceUrl(service));
+			urlEl.setText(`:${CYBRIA_PORT}${SERVICE_PATHS[service]}`);
 		}
 
 		void this.refreshStatuses();
@@ -182,29 +196,36 @@ export class ServersPanel {
 	): void {
 		els.card.removeClass("is-offline", "is-stopped", "is-loading", "is-ready", "is-error");
 		els.card.addClass(`is-${parsed.state === "stopped" ? "idle" : parsed.state}`);
+		els.card.toggleAttribute("aria-busy", parsed.state === "loading");
 
-		els.status.setText(formatStatusLabel(parsed.label));
-		els.status.removeClass(
-			"ccore-svc-offline",
-			"ccore-svc-stopped",
-			"ccore-svc-loading",
-			"ccore-svc-ready",
-			"ccore-svc-error"
-		);
-		els.status.addClass(serviceHealthClass(parsed.state));
-
+		const label = formatStatusLabel(parsed.label);
+		els.dot.setAttr("title", parsed.detail ? `${label} — ${parsed.detail}` : label);
 		els.dot.removeClass("is-ready", "is-loading", "is-offline", "is-error");
 		if (parsed.state === "ready") els.dot.addClass("is-ready");
 		else if (parsed.state === "loading") els.dot.addClass("is-loading");
 		else if (parsed.state === "error") els.dot.addClass("is-error");
 		else els.dot.addClass("is-offline");
 
-		const hasModel = parsed.model && parsed.model !== "—";
-		els.model.toggleClass("is-hidden", !hasModel);
-		if (hasModel) els.model.setText(parsed.model);
+		els.status.removeClass(
+			"ccore-svc-offline",
+			"ccore-svc-stopped",
+			"ccore-svc-loading",
+			"ccore-svc-ready",
+			"ccore-svc-error",
+			"is-hidden"
+		);
+		if (parsed.state === "loading") {
+			els.status.addClass("is-hidden");
+			els.status.setText("");
+		} else {
+			els.status.setText(label);
+			els.status.addClass(serviceHealthClass(parsed.state));
+		}
+
+		els.model.addClass("is-hidden");
 
 		els.hint.removeClass("is-visible", "is-info", "is-warn", "is-error");
-		if (parsed.detail) {
+		if (parsed.detail && parsed.state !== "ready") {
 			els.hint.setText(parsed.detail);
 			els.hint.addClass("is-visible");
 			if (parsed.state === "error") els.hint.addClass("is-error");
@@ -286,8 +307,8 @@ export class ServersPanel {
 			new Notice(`${SERVICE_LABELS[service]} started with ${modelId}`);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
-			this.log(`[start] failed: ${msg}`);
-			new Notice(`Start failed: ${msg}`);
+			this.logMultiline("[start] failed:", msg);
+			new Notice(`Start failed: ${msg.split("\n")[0]}`);
 		} finally {
 			await this.refreshStatuses();
 			await this.callbacks.refreshSwitcher();

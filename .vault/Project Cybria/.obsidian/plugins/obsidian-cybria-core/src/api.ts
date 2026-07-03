@@ -144,6 +144,22 @@ export class CybriaCoreApi {
 		}
 	}
 
+	/** Stop gateway and all child services (call on Obsidian exit). */
+	async shutdownOnExit(): Promise<void> {
+		const base = this.baseUrl();
+		try {
+			const ctrl = new AbortController();
+			const timer = setTimeout(() => ctrl.abort(), 5000);
+			await fetch(`${base}/shutdown`, { method: "POST", signal: ctrl.signal });
+			clearTimeout(timer);
+		} catch {
+			/* gateway already down or unreachable */
+		}
+		if (this.isGatewayRunning()) {
+			this.runner().stopServer(() => {});
+		}
+	}
+
 	async ensureGatewayRunning(opts: EnsureGatewayOptions = {}): Promise<void> {
 		return ensureGatewayRunning(this, opts);
 	}

@@ -264,13 +264,34 @@ def stop_service(name: str) -> None:
     proc = _procs.get(name)
     if proc is not None and proc.poll() is None:
         print(f"[cybria-server] stopping {name}", flush=True)
-        proc.terminate()
-        try:
-            proc.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _terminate_process_tree(proc)
     _procs.pop(name, None)
     _log_threads.pop(name, None)
+
+
+def _terminate_process_tree(proc: subprocess.Popen[Any]) -> None:
+    """Stop a service and its children (e.g. llama-server under cybria-llm)."""
+    if proc.poll() is not None:
+        return
+    pid = proc.pid
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=15,
+            )
+            return
+        proc.terminate()
+        proc.wait(timeout=8)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    except Exception as exc:
+        print(f"[cybria-server] kill pid {pid} failed: {exc}", flush=True)
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 def stop_all_services() -> None:
@@ -362,6 +383,20 @@ async def api_stop_service(name: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"unknown service {name}")
     stop_service(name)
     return {"ok": True, "service": name}
+
+
+@app.post("/shutdown")
+async def api_shutdown() -> dict[str, Any]:
+    """Stop all services and exit the gateway (used when Obsidian closes)."""
+    print("[cybria-server] shutdown requested", flush=True)
+    stop_all_services()
+
+    def _exit_gateway() -> None:
+        time.sleep(0.2)
+        os._exit(0)
+
+    threading.Thread(target=_exit_gateway, daemon=True, name="cybria-shutdown").start()
+    return {"ok": True}
 
 
 async def _proxy(name: str, path: str, request: Request) -> Response:

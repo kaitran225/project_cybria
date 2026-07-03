@@ -91,7 +91,14 @@ MODELS: list[ModelSpec] = [
     ),
 ]
 
-DEFAULT_MODEL_ID = "gemma-4-12b-agentic-gguf"
+DEFAULT_MODEL_ID = "qwen2.5-3b-instruct"
+
+
+def first_installed_model_id() -> str | None:
+    for m in MODELS:
+        if find_gguf(m.id):
+            return m.id
+    return None
 
 
 def get_model(model_id: str) -> ModelSpec:

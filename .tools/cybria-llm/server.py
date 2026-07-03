@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -159,21 +161,38 @@ async def proxy_openai(path: str, request: Request):
 
 def _auto_load() -> None:
     global _loading, _load_error
-    from models import find_gguf
+    from models import first_installed_model_id
 
-    if not find_gguf(DEFAULT_MODEL_ID):
-        print(f"[cybria-llm] no GGUF for {DEFAULT_MODEL_ID}; load after download")
+    model_id = first_installed_model_id()
+    if not model_id:
+        print("[cybria-llm] no GGUF installed — use Download on a model, then Start")
         return
     with _load_lock:
         _loading = True
         try:
-            _llama.load(DEFAULT_MODEL_ID)
-            print(f"[cybria-llm] loaded {DEFAULT_MODEL_ID}")
+            _llama.load(model_id)
+            print(f"[cybria-llm] loaded {model_id}")
         except Exception as exc:
             _load_error = str(exc)
             print(f"[cybria-llm] auto-load failed: {exc}")
         finally:
             _loading = False
+
+
+def _cleanup_llama() -> None:
+    _llama.stop()
+
+
+atexit.register(_cleanup_llama)
+
+
+def _handle_exit(*_args: Any) -> None:
+    _cleanup_llama()
+    raise SystemExit(0)
+
+
+signal.signal(signal.SIGINT, _handle_exit)
+signal.signal(signal.SIGTERM, _handle_exit)
 
 
 if __name__ == "__main__":
