@@ -86,6 +86,7 @@ env/
 # --- Global model storage (outside repo) ---
 # Paths are configured in Cybria Core settings and synced to .tools/model-paths.json
 .tools/model-paths.json
+!.tools/model-paths.example.json
 
 # --- LoRA / model weights (large, local) ---
 *.safetensors

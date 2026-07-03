@@ -4,16 +4,39 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "model-paths.json"
 _KEYS = ("root", "loras", "huggingface", "llm", "tts", "summarization")
+_ENV_VAR_PATTERN = re.compile(r"%([^%]+)%|\$\{([^}]+)\}")
+
+
+def default_model_root() -> Path:
+    return Path.home() / ".models"
+
+
+def expand_path(raw: str) -> str:
+    s = raw.strip()
+    if not s:
+        return ""
+
+    if s == "~":
+        return str(Path.home())
+    if s.startswith("~/") or s.startswith("~\\"):
+        return str(Path.home() / s[2:])
+
+    def _repl(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        return os.environ.get(name, match.group(0))
+
+    return str(Path(_ENV_VAR_PATTERN.sub(_repl, s)))
 
 
 def _derive_from_root(root: str) -> dict[str, str]:
-    base = Path(root)
+    base = Path(expand_path(root))
     return {
-        "root": root,
+        "root": str(base),
         "loras": str(base / "LoRa"),
         "huggingface": str(base / "Qwen"),
         "llm": str(base / "llm"),
@@ -34,13 +57,13 @@ def load_model_paths() -> dict[str, str]:
     if not isinstance(data, dict):
         return paths
 
-    root = str(data.get("root", "")).strip()
+    root = expand_path(str(data.get("root", "")))
     if root:
         paths = _derive_from_root(root)
     for key in _KEYS:
         raw = data.get(key)
         if isinstance(raw, str) and raw.strip():
-            paths[key] = raw.strip()
+            paths[key] = expand_path(raw)
     return paths
 
 
@@ -61,7 +84,7 @@ def get_path(key: str, env_var: str | None = None) -> Path:
     if env_var:
         raw = os.environ.get(env_var, "").strip()
         if raw:
-            return Path(raw)
+            return Path(expand_path(raw))
     value = load_model_paths().get(key, "").strip()
     if not value:
         raise RuntimeError(

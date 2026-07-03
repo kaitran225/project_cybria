@@ -9,17 +9,27 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-$ModelRoot = [string]$cfg.root
+
+function Expand-ModelPath([string]$Value) {
+    if (-not $Value) { return "" }
+    $expanded = [Environment]::ExpandEnvironmentVariables($Value.Trim())
+    if ($expanded.StartsWith("~/")) {
+        return Join-Path $HOME $expanded.Substring(2)
+    }
+    return $expanded
+}
+
+$ModelRoot = Expand-ModelPath ([string]$cfg.root)
 if (-not $ModelRoot.Trim()) {
     Write-Warning "Model root is empty in $ConfigPath. Set model storage in Cybria Core settings."
     return
 }
 
-$LoraDir = if ($cfg.loras) { [string]$cfg.loras } else { Join-Path $ModelRoot "LoRa" }
-$HuggingFaceHome = if ($cfg.huggingface) { [string]$cfg.huggingface } else { Join-Path $ModelRoot "Qwen" }
-$LlmDir = if ($cfg.llm) { [string]$cfg.llm } else { Join-Path $ModelRoot "llm" }
-$TtsDir = if ($cfg.tts) { [string]$cfg.tts } else { Join-Path $ModelRoot "tts" }
-$SummarizationDir = if ($cfg.summarization) { [string]$cfg.summarization } else { Join-Path $ModelRoot "summarization" }
+$LoraDir = if ($cfg.loras) { Expand-ModelPath ([string]$cfg.loras) } else { Join-Path $ModelRoot "LoRa" }
+$HuggingFaceHome = if ($cfg.huggingface) { Expand-ModelPath ([string]$cfg.huggingface) } else { Join-Path $ModelRoot "Qwen" }
+$LlmDir = if ($cfg.llm) { Expand-ModelPath ([string]$cfg.llm) } else { Join-Path $ModelRoot "llm" }
+$TtsDir = if ($cfg.tts) { Expand-ModelPath ([string]$cfg.tts) } else { Join-Path $ModelRoot "tts" }
+$SummarizationDir = if ($cfg.summarization) { Expand-ModelPath ([string]$cfg.summarization) } else { Join-Path $ModelRoot "summarization" }
 
 $HubDir = $HuggingFaceHome
 if (-not (Get-ChildItem $HuggingFaceHome -Filter "models--*" -ErrorAction SilentlyContinue)) {

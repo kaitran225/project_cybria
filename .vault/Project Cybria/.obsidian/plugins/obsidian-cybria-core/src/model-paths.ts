@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import * as os from "os";
 import * as path from "path";
 import type { ModelPathsConfig } from "./settings";
 import { EMPTY_MODEL_PATHS } from "./settings";
@@ -8,8 +9,42 @@ export type { ModelPathsConfig };
 export { EMPTY_MODEL_PATHS };
 export { repoRootFromVault, repoRootFromTools };
 
+const SUBPATH_KEYS = ["loras", "huggingface", "llm", "tts", "summarization"] as const;
+
+/** Portable default when no root is configured. */
+export function defaultModelRoot(): string {
+	return path.join(os.homedir(), ".models");
+}
+
+/** Expand `~`, `%VAR%`, and `${VAR}` in a path string. */
+export function expandModelPath(raw: string): string {
+	let s = raw.trim();
+	if (!s) return "";
+
+	if (s === "~") return os.homedir();
+	if (s.startsWith("~/") || s.startsWith("~\\")) {
+		return path.normalize(path.join(os.homedir(), s.slice(2)));
+	}
+
+	s = s.replace(/%([^%]+)%/g, (_, name: string) => process.env[name] ?? `%${name}%`);
+	s = s.replace(/\$\{([^}]+)\}/g, (_, name: string) => process.env[name] ?? `\${${name}}`);
+
+	return path.normalize(s);
+}
+
+export function expandModelPaths(input: ModelPathsConfig): ModelPathsConfig {
+	return {
+		root: expandModelPath(input.root),
+		loras: expandModelPath(input.loras),
+		huggingface: expandModelPath(input.huggingface),
+		llm: expandModelPath(input.llm),
+		tts: expandModelPath(input.tts),
+		summarization: expandModelPath(input.summarization),
+	};
+}
+
 export function derivedModelPaths(root: string): ModelPathsConfig {
-	const base = root.replace(/[/\\]+$/, "");
+	const base = expandModelPath(root).replace(/[/\\]+$/, "");
 	return {
 		root: base,
 		loras: path.join(base, "LoRa"),
@@ -22,15 +57,15 @@ export function derivedModelPaths(root: string): ModelPathsConfig {
 
 /** Merge stored settings with derived subpaths when only root is set. */
 export function resolveModelPaths(input: Partial<ModelPathsConfig> | undefined): ModelPathsConfig {
-	const root = input?.root?.trim() ?? "";
+	const root = expandModelPath(input?.root?.trim() ?? "");
 	const derived = root ? derivedModelPaths(root) : { ...EMPTY_MODEL_PATHS };
 	return {
 		root,
-		loras: input?.loras?.trim() || derived.loras,
-		huggingface: input?.huggingface?.trim() || derived.huggingface,
-		llm: input?.llm?.trim() || derived.llm,
-		tts: input?.tts?.trim() || derived.tts,
-		summarization: input?.summarization?.trim() || derived.summarization,
+		loras: expandModelPath(input?.loras?.trim() ?? "") || derived.loras,
+		huggingface: expandModelPath(input?.huggingface?.trim() ?? "") || derived.huggingface,
+		llm: expandModelPath(input?.llm?.trim() ?? "") || derived.llm,
+		tts: expandModelPath(input?.tts?.trim() ?? "") || derived.tts,
+		summarization: expandModelPath(input?.summarization?.trim() ?? "") || derived.summarization,
 	};
 }
 
@@ -66,10 +101,18 @@ export function readModelPathsFile(repoRoot: string): ModelPathsConfig | null {
 /** Write `.tools/model-paths.json` for Python / PowerShell start scripts. */
 export function syncModelPathsFile(repoRoot: string, paths: ModelPathsConfig): void {
 	if (!repoRoot.trim() || !paths.root.trim()) return;
+	const resolved = resolveModelPaths(paths);
+	const derived = derivedModelPaths(resolved.root);
+	const payload: Partial<ModelPathsConfig> = { root: resolved.root };
+	for (const key of SUBPATH_KEYS) {
+		if (resolved[key] !== derived[key]) {
+			payload[key] = resolved[key];
+		}
+	}
 	const configPath = modelPathsConfigPath(repoRoot);
 	const dir = path.dirname(configPath);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-	writeFileSync(configPath, `${JSON.stringify(paths, null, 2)}\n`, "utf-8");
+	writeFileSync(configPath, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
 }
 
 export function modelPathEnv(paths: ModelPathsConfig): NodeJS.ProcessEnv {

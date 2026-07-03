@@ -71,7 +71,7 @@ export class CybriaCoreSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h3", { text: "Model storage" });
 		containerEl.createEl("p", {
-			text: "Absolute paths for downloaded models. Set the root folder; subfolders are created automatically unless overridden.",
+			text: "Absolute paths for downloaded models. Set the root folder; subfolders (LoRa, Qwen, llm, tts, summarization) are derived automatically unless overridden. Use %USERPROFILE% or ~ for portable paths.",
 			cls: "setting-item-description",
 		});
 
@@ -80,7 +80,7 @@ export class CybriaCoreSettingTab extends PluginSettingTab {
 			label: string;
 			desc?: string;
 		}> = [
-			{ key: "root", label: "Model root", desc: "e.g. D:\\Models or G:\\.models" },
+			{ key: "root", label: "Model root", desc: "e.g. %USERPROFILE%\\.models or D:\\Models" },
 			{ key: "loras", label: "LoRA folder", desc: "Default: <root>\\LoRa" },
 			{ key: "huggingface", label: "Hugging Face / diffusion", desc: "Default: <root>\\Qwen" },
 			{ key: "llm", label: "LLM (GGUF)", desc: "Default: <root>\\llm" },
