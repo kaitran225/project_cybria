@@ -53,7 +53,7 @@ def main() -> int:
             result["errors"].append("torch-cpu")
             result["ok"] = False
             result["cuda_hint"] = (
-                "PyTorch is CPU-only. Run install_torch_cuda.ps1"
+                "PyTorch is CPU-only. Run: python -m cybria_cli setup cybria-diffuser --cuda-torch"
             )
     except Exception as exc:
         result["cuda_available"] = False

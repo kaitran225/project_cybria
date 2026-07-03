@@ -104,11 +104,19 @@ export class CybriaServerRunner {
 	}
 
 	pythonExe(toolsDir: string): string {
-		return path.join(toolsDir, ".venv", "Scripts", "python.exe");
+		const win = path.join(toolsDir, ".venv", "Scripts", "python.exe");
+		const unix = path.join(toolsDir, ".venv", "bin", "python");
+		if (existsSync(win)) return win;
+		if (existsSync(unix)) return unix;
+		return process.platform === "win32" ? win : unix;
 	}
 
 	pipExe(toolsDir: string): string {
-		return path.join(toolsDir, ".venv", "Scripts", "pip.exe");
+		const win = path.join(toolsDir, ".venv", "Scripts", "pip.exe");
+		const unix = path.join(toolsDir, ".venv", "bin", "pip");
+		if (existsSync(win)) return win;
+		if (existsSync(unix)) return unix;
+		return process.platform === "win32" ? win : path.join(toolsDir, ".venv", "bin", "pip3");
 	}
 
 	private ensureModelDirs(toolsDir: string): void {
@@ -186,8 +194,13 @@ export class CybriaServerRunner {
 	async ensureVenv(toolsDir: string, onLine: (line: string) => void): Promise<void> {
 		const venvPy = this.pythonExe(toolsDir);
 		if (existsSync(venvPy)) return;
-		onLine("$ py -3.12 -m venv .venv");
-		const code = await this.runCommand("py", ["-3.12", "-m", "venv", ".venv"], toolsDir, onLine);
+		const isWin = process.platform === "win32";
+		const cmd = isWin ? "py" : "python3";
+		const args = isWin
+			? ["-3.12", "-m", "venv", ".venv"]
+			: ["-m", "venv", ".venv"];
+		onLine(`$ ${cmd} ${args.join(" ")}`);
+		const code = await this.runCommand(cmd, args, toolsDir, onLine);
 		if (code !== 0) throw new Error(`venv create failed (exit ${code})`);
 	}
 

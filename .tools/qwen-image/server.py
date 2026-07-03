@@ -7,7 +7,7 @@ import sys
 if __name__ == "__main__":
     print(
         "qwen-image/server.py was replaced by cybria-diffuser.\n"
-        "Run: .tools/cybria-diffuser/start.ps1\n"
+        "Run: cd .tools && python -m cybria_cli run cybria-diffuser\n"
         "  unified: server.py\n"
         "  qwen only: qwen/server.py\n"
         "  sdxl only: sdxl/server.py",
