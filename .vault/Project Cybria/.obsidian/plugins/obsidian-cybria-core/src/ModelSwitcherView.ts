@@ -3,7 +3,8 @@ import { AppsHost } from "./apps/AppsHost";
 import { appTitle, APP_DEFS, type AppId } from "./apps/types";
 import { CybriaDashboardPane } from "./dashboard";
 import { parseServiceHealth, formatStatusLabel, serviceHealthClass } from "./gateway-health";
-import { catalogForSlot } from "./catalog";
+import { catalogForProfile } from "./hardware-profiles";
+import type { ModelSlot } from "./catalog";
 import type CybriaCorePlugin from "./main";
 import { SERVICE_BLURBS, SERVICE_ICONS, SERVICE_LABELS } from "./server-labels";
 import {
@@ -351,10 +352,7 @@ export class ModelSwitcherView extends ItemView {
 			const modelRow = body.createDiv("ccore-svc-model-row");
 			modelRow.createSpan({ text: "Model", cls: "ccore-svc-model-label" });
 			const select = modelRow.createEl("select", { cls: "ccore-svc-model-select" });
-			for (const m of catalogForSlot(slot)) {
-				const opt = select.createEl("option", { text: m.name, value: m.id });
-				if (m.runnable === "tight") opt.text = `${m.name} (tight)`;
-			}
+			this.populateModelSelect(select, slot);
 			select.value = this.plugin.settings.activeModels[slot];
 			select.onchange = () => {
 				this.plugin.settings.activeModels[slot] = select.value;
@@ -483,6 +481,31 @@ export class ModelSwitcherView extends ItemView {
 			const active = this.plugin.settings.activeModels[slot];
 			if (els.select.value !== active) els.select.value = active;
 		}
+	}
+
+	private populateModelSelect(select: HTMLSelectElement, slot: ModelSlot): void {
+		select.empty();
+		const profileId = this.plugin.settings.hardwareProfile;
+		for (const m of catalogForProfile(slot, profileId)) {
+			const opt = select.createEl("option", { text: m.name, value: m.id });
+			if (m.runnable === "tight") opt.text = `${m.name} (tight)`;
+			else if (m.runnable === "marginal") opt.text = `${m.name} (marginal)`;
+		}
+		const active = this.plugin.settings.activeModels[slot];
+		if (Array.from(select.options).some((o) => o.value === active)) {
+			select.value = active;
+		} else if (select.options.length > 0) {
+			select.value = select.options[0].value;
+		}
+	}
+
+	refreshModelSelectsForProfile(): void {
+		for (const service of ALL_SERVICES) {
+			const els = this.serviceCards.get(service);
+			if (!els) continue;
+			this.populateModelSelect(els.select, SERVICE_SLOT[service]);
+		}
+		this.dashboardPane?.render();
 	}
 
 	private selectedModelId(service: CybriaServiceKey): string {

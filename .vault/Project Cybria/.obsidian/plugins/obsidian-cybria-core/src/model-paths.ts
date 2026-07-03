@@ -1,23 +1,36 @@
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import * as path from "path";
+import type { ModelPathsConfig } from "./settings";
+import { EMPTY_MODEL_PATHS } from "./settings";
 
-export interface ModelPathsConfig {
-	root: string;
-	loras: string;
-	huggingface: string;
-	llm: string;
-	tts: string;
-	summarization: string;
+export type { ModelPathsConfig };
+export { EMPTY_MODEL_PATHS };
+
+export function derivedModelPaths(root: string): ModelPathsConfig {
+	const base = root.replace(/[/\\]+$/, "");
+	return {
+		root: base,
+		loras: path.join(base, "LoRa"),
+		huggingface: path.join(base, "Qwen"),
+		llm: path.join(base, "llm"),
+		tts: path.join(base, "tts"),
+		summarization: path.join(base, "summarization"),
+	};
 }
 
-const FALLBACK: ModelPathsConfig = {
-	root: "G:\\.models",
-	loras: "G:\\.models\\LoRa",
-	huggingface: "G:\\.models\\Qwen",
-	llm: "G:\\.models\\llm",
-	tts: "G:\\.models\\tts",
-	summarization: "G:\\.models\\summarization",
-};
+/** Merge stored settings with derived subpaths when only root is set. */
+export function resolveModelPaths(input: Partial<ModelPathsConfig> | undefined): ModelPathsConfig {
+	const root = input?.root?.trim() ?? "";
+	const derived = root ? derivedModelPaths(root) : { ...EMPTY_MODEL_PATHS };
+	return {
+		root,
+		loras: input?.loras?.trim() || derived.loras,
+		huggingface: input?.huggingface?.trim() || derived.huggingface,
+		llm: input?.llm?.trim() || derived.llm,
+		tts: input?.tts?.trim() || derived.tts,
+		summarization: input?.summarization?.trim() || derived.summarization,
+	};
+}
 
 export function hubCacheDir(hfPath: string): string {
 	try {
@@ -31,40 +44,38 @@ export function hubCacheDir(hfPath: string): string {
 	return path.join(hfPath, "hub");
 }
 
+export function modelPathsConfigPath(repoRoot: string): string {
+	return path.join(repoRoot, ".tools", "model-paths.json");
+}
+
+/** Read `.tools/model-paths.json` if present (bootstrap / migration). */
+export function readModelPathsFile(repoRoot: string): ModelPathsConfig | null {
+	const configPath = modelPathsConfigPath(repoRoot);
+	try {
+		if (!existsSync(configPath)) return null;
+		const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<ModelPathsConfig>;
+		const resolved = resolveModelPaths(raw);
+		return resolved.root ? resolved : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Write `.tools/model-paths.json` for Python / PowerShell start scripts. */
+export function syncModelPathsFile(repoRoot: string, paths: ModelPathsConfig): void {
+	if (!repoRoot.trim() || !paths.root.trim()) return;
+	const configPath = modelPathsConfigPath(repoRoot);
+	const dir = path.dirname(configPath);
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	writeFileSync(configPath, `${JSON.stringify(paths, null, 2)}\n`, "utf-8");
+}
+
 export function repoRootFromVault(vaultBasePath: string): string {
 	return path.dirname(path.dirname(vaultBasePath));
 }
 
 export function repoRootFromTools(toolsDir: string): string {
 	return path.dirname(path.dirname(toolsDir));
-}
-
-export function loadModelPathsFromRepo(repoRoot: string): ModelPathsConfig {
-	const configPath = path.join(repoRoot, ".tools", "model-paths.json");
-	try {
-		if (existsSync(configPath)) {
-			const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<ModelPathsConfig>;
-			return {
-				root: raw.root?.trim() || FALLBACK.root,
-				loras: raw.loras?.trim() || FALLBACK.loras,
-				huggingface: raw.huggingface?.trim() || FALLBACK.huggingface,
-				llm: raw.llm?.trim() || FALLBACK.llm,
-				tts: raw.tts?.trim() || FALLBACK.tts,
-				summarization: raw.summarization?.trim() || FALLBACK.summarization,
-			};
-		}
-	} catch {
-		/* fallback */
-	}
-	return { ...FALLBACK };
-}
-
-export function loadModelPathsFromVault(vaultBasePath: string): ModelPathsConfig {
-	return loadModelPathsFromRepo(repoRootFromVault(vaultBasePath));
-}
-
-export function loadModelPathsFromTools(toolsDir: string): ModelPathsConfig {
-	return loadModelPathsFromRepo(repoRootFromTools(toolsDir));
 }
 
 export function modelPathEnv(paths: ModelPathsConfig): NodeJS.ProcessEnv {

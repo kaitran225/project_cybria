@@ -47,20 +47,7 @@ Invoke-PluginBuild "dataview" {
     }
 }
 
-
-Invoke-PluginBuild "obsidian-local-llm-hub" {
-    npm install
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    npm run build
-}
-
 Invoke-PluginBuild "obsidian-color-palette" {
-    npm install --legacy-peer-deps
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    npm run build
-}
-
-Invoke-PluginBuild "obsidian-agent" {
     npm install --legacy-peer-deps
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     npm run build
@@ -87,12 +74,6 @@ Invoke-PluginBuild "obsidian-creases" {
 
 Invoke-PluginBuild "obsidian-people-graph" {
     npm install
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    npm run build
-}
-
-Invoke-PluginBuild "obsidian-storyteller-suite" {
-    npm install --legacy-peer-deps
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     npm run build
 }

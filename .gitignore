@@ -84,7 +84,8 @@ env/
 *.egg
 
 # --- Global model storage (outside repo) ---
-# Paths are defined in .tools/model-paths.json — default root: G:\.models
+# Paths are configured in Cybria Core settings and synced to .tools/model-paths.json
+.tools/model-paths.json
 
 # --- LoRA / model weights (large, local) ---
 *.safetensors

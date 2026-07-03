@@ -1,11 +1,15 @@
 import type { CybriaCoreApi } from "./api";
 import {
-	catalogForSlot,
 	getCatalogModel,
 	serverForSlot,
 	type CatalogModel,
 	type ModelSlot,
 } from "./catalog";
+import {
+	catalogForProfile,
+	getHardwareProfile,
+	isModelVisibleForProfile,
+} from "./hardware-profiles";
 import type { CybriaServiceKey } from "./servers";
 import { CYBRIA_PORT } from "./servers";
 
@@ -73,7 +77,7 @@ export class ModelSwitcher {
 	}
 
 	listModels(slot: ModelSlot): CatalogModel[] {
-		return catalogForSlot(slot);
+		return catalogForProfile(slot, this.api.hardwareProfileId());
 	}
 
 	getActiveModel(slot: ModelSlot): string {
@@ -187,6 +191,10 @@ export class ModelSwitcher {
 		const entry = getCatalogModel(modelId);
 		if (!entry || entry.slot !== slot) {
 			throw new Error(`Unknown model ${modelId} for slot ${slot}`);
+		}
+		const profile = getHardwareProfile(this.api.hardwareProfileId());
+		if (!isModelVisibleForProfile(entry, profile)) {
+			throw new Error(`${entry.name} is not available on profile ${profile.name}`);
 		}
 
 		const service = serverForSlot(slot);

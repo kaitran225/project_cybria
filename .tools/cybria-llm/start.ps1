@@ -10,7 +10,7 @@ $py = ".\.venv\Scripts\python.exe"
 & $py -m pip install -q -r requirements.txt
 
 $env:PYTHONUNBUFFERED = "1"
-$env:CYBRIA_LLM_DIR = if ($env:CYBRIA_LLM_DIR) { $env:CYBRIA_LLM_DIR } else { "G:\.models\llm" }
+. (Join-Path (Split-Path $PSScriptRoot -Parent) "Apply-ModelPaths.ps1")
 
 Write-Host "Starting cybria-llm on http://127.0.0.1:8790"
 & $py server.py

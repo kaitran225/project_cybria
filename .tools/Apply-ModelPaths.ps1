@@ -1,24 +1,25 @@
-# Apply global model paths from .tools/model-paths.json (sourced by start scripts).
+# Apply global model paths from .tools/model-paths.json (synced from Cybria Core settings).
 $ErrorActionPreference = "Stop"
 $ToolsRoot = $PSScriptRoot
 $ConfigPath = Join-Path $ToolsRoot "model-paths.json"
 
-$ModelRoot = "G:\.models"
-$LoraDir = "G:\.models\LoRa"
-$HuggingFaceHome = "G:\.models\Qwen"
-$LlmDir = "G:\.models\llm"
-$TtsDir = "G:\.models\tts"
-$SummarizationDir = "G:\.models\summarization"
-
-if (Test-Path $ConfigPath) {
-    $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-    if ($cfg.root) { $ModelRoot = [string]$cfg.root }
-    if ($cfg.loras) { $LoraDir = [string]$cfg.loras }
-    if ($cfg.huggingface) { $HuggingFaceHome = [string]$cfg.huggingface }
-    if ($cfg.llm) { $LlmDir = [string]$cfg.llm }
-    if ($cfg.tts) { $TtsDir = [string]$cfg.tts }
-    if ($cfg.summarization) { $SummarizationDir = [string]$cfg.summarization }
+if (-not (Test-Path $ConfigPath)) {
+    Write-Warning "Model paths not configured. Set model storage in Cybria Core settings (or create $ConfigPath)."
+    return
 }
+
+$cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+$ModelRoot = [string]$cfg.root
+if (-not $ModelRoot.Trim()) {
+    Write-Warning "Model root is empty in $ConfigPath. Set model storage in Cybria Core settings."
+    return
+}
+
+$LoraDir = if ($cfg.loras) { [string]$cfg.loras } else { Join-Path $ModelRoot "LoRa" }
+$HuggingFaceHome = if ($cfg.huggingface) { [string]$cfg.huggingface } else { Join-Path $ModelRoot "Qwen" }
+$LlmDir = if ($cfg.llm) { [string]$cfg.llm } else { Join-Path $ModelRoot "llm" }
+$TtsDir = if ($cfg.tts) { [string]$cfg.tts } else { Join-Path $ModelRoot "tts" }
+$SummarizationDir = if ($cfg.summarization) { [string]$cfg.summarization } else { Join-Path $ModelRoot "summarization" }
 
 $HubDir = $HuggingFaceHome
 if (-not (Get-ChildItem $HuggingFaceHome -Filter "models--*" -ErrorAction SilentlyContinue)) {
@@ -37,3 +38,6 @@ $env:HF_HOME = $ModelRoot
 $env:HUGGINGFACE_HUB_CACHE = $HubDir
 $env:TRANSFORMERS_CACHE = $HubDir
 $env:DIFFUSERS_CACHE = $HubDir
+$env:CYBRIA_LLM_DIR = $LlmDir
+$env:CYBRIA_TTS_DIR = $TtsDir
+$env:CYBRIA_SUMMARIZE_DIR = $SummarizationDir

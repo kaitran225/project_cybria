@@ -8,4 +8,5 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 $py = ".\.venv\Scripts\python.exe"
 & $py -m pip install -q -r requirements.txt
 $env:PYTHONUNBUFFERED = "1"
+. (Join-Path (Split-Path $PSScriptRoot -Parent) "Apply-ModelPaths.ps1")
 & $py server.py

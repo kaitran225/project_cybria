@@ -3,8 +3,10 @@ import { existsSync, mkdirSync } from "fs";
 import * as path from "path";
 import {
 	hubCacheDir,
-	loadModelPathsFromTools,
 	modelPathEnv,
+	readModelPathsFile,
+	repoRootFromTools,
+	resolveModelPaths,
 	type ModelPathsConfig,
 } from "./model-paths";
 
@@ -83,10 +85,22 @@ export class CybriaServerRunner {
 	private proc: ChildProcessWithoutNullStreams | null = null;
 	private readonly toolsSubdir: string;
 	private readonly extraEnv?: ServerEnvExtra;
+	private readonly getModelPaths?: () => ModelPathsConfig;
 
-	constructor(toolsSubdir: string, extraEnv?: ServerEnvExtra) {
+	constructor(
+		toolsSubdir: string,
+		extraEnv?: ServerEnvExtra,
+		getModelPaths?: () => ModelPathsConfig
+	) {
 		this.toolsSubdir = toolsSubdir;
 		this.extraEnv = extraEnv;
+		this.getModelPaths = getModelPaths;
+	}
+
+	private resolveModelPaths(toolsDir: string): ModelPathsConfig {
+		if (this.getModelPaths) return this.getModelPaths();
+		const fromFile = readModelPathsFile(repoRootFromTools(toolsDir));
+		return fromFile ?? resolveModelPaths(undefined);
 	}
 
 	resolveToolsDir(vaultBasePath: string, override = ""): string {
@@ -104,7 +118,8 @@ export class CybriaServerRunner {
 	}
 
 	private ensureModelDirs(toolsDir: string): void {
-		const paths = loadModelPathsFromTools(toolsDir);
+		const paths = this.resolveModelPaths(toolsDir);
+		if (!paths.root.trim()) return;
 		const hub = hubCacheDir(paths.huggingface);
 		for (const dir of [
 			paths.root,
@@ -121,9 +136,10 @@ export class CybriaServerRunner {
 
 	private serverEnv(toolsDir: string): NodeJS.ProcessEnv {
 		this.ensureModelDirs(toolsDir);
-		const paths = loadModelPathsFromTools(toolsDir);
+		const paths = this.resolveModelPaths(toolsDir);
 		const extra = this.extraEnv?.(paths) ?? {};
-		return { ...process.env, ...modelPathEnv(paths), ...extra, ...this.runtimeEnv() };
+		const pathEnv = paths.root.trim() ? modelPathEnv(paths) : {};
+		return { ...process.env, ...pathEnv, ...extra, ...this.runtimeEnv() };
 	}
 
 	private runtimeEnv(): NodeJS.ProcessEnv {

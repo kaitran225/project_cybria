@@ -5,12 +5,8 @@ import { SummarizeClient } from "./clients/summarize";
 import { TtsClient } from "./clients/tts";
 import type { ModelSlot } from "./catalog";
 import { apiBase } from "./http";
-import {
-	loadModelPathsFromVault,
-	type ModelPathsConfig,
-} from "./model-paths";
+import { resolveModelPaths, type ModelPathsConfig } from "./model-paths";
 import { ModelSwitcher } from "./model-switcher";
-import { SemanticSummarizer } from "./semantic-summarize";
 import {
 	CybriaServerRunner,
 	GATEWAY_ENV,
@@ -36,11 +32,6 @@ export type { ModelPathsConfig } from "./model-paths";
 export type { CybriaServiceKey, CybriaServerKey } from "./servers";
 export type { CybriaServerRunner, ReqCheckResult, ServerEnvExtra } from "./server-runner";
 export type { SlotState, SwitchStatus } from "./model-switcher";
-export type {
-	SemanticSummarizeOptions,
-	SemanticSummarizeResult,
-} from "./semantic-summarize";
-export type { CatalyzeHit, CatalyzeResponse } from "./enzyme/catalyze";
 export { CYBRIA_BASE_URL, CYBRIA_CORE_ID, CYBRIA_PORT, GATEWAY_TOOLS } from "./servers";
 export { SLOT_LABELS, MODEL_CATALOG } from "./catalog";
 
@@ -54,7 +45,6 @@ export class CybriaCoreApi {
 	readonly tts: TtsClient;
 	readonly image: ImageClient;
 	readonly switcher: ModelSwitcher;
-	readonly semantic: SemanticSummarizer;
 	readonly log: ServerLog;
 
 	private gatewayRunner: CybriaServerRunner | null = null;
@@ -73,11 +63,14 @@ export class CybriaCoreApi {
 		this.tts = new TtsClient(this.serviceUrl("tts"));
 		this.image = new ImageClient(this.serviceUrl("image"));
 		this.switcher = new ModelSwitcher(this, getActiveModels, saveActiveModel);
-		this.semantic = new SemanticSummarizer(this);
 	}
 
 	baseUrl(): string {
 		return apiBase(this.getSettings().baseUrl?.trim() || CYBRIA_BASE_URL);
+	}
+
+	hardwareProfileId(): string {
+		return this.getSettings().hardwareProfile;
 	}
 
 	/** Service API base, e.g. http://127.0.0.1:2253/llm */
@@ -103,7 +96,7 @@ export class CybriaCoreApi {
 	}
 
 	modelPaths(): ModelPathsConfig {
-		return loadModelPathsFromVault(this.vaultPath());
+		return resolveModelPaths(this.getSettings().modelPaths);
 	}
 
 	resolveToolsDir(target: CybriaServerKey, override = ""): string {
@@ -116,7 +109,9 @@ export class CybriaCoreApi {
 	/** Gateway process (single port 2253). */
 	runner(): CybriaServerRunner {
 		if (!this.gatewayRunner) {
-			this.gatewayRunner = new CybriaServerRunner(GATEWAY_TOOLS, GATEWAY_ENV);
+			this.gatewayRunner = new CybriaServerRunner(GATEWAY_TOOLS, GATEWAY_ENV, () =>
+				this.modelPaths()
+			);
 		}
 		return this.gatewayRunner;
 	}
@@ -166,7 +161,7 @@ export class CybriaCoreApi {
 	serviceRunner(toolsSubdir: string, extraEnv?: ServerEnvExtra): CybriaServerRunner {
 		let r = this.serviceRunners.get(toolsSubdir);
 		if (!r) {
-			r = new CybriaServerRunner(toolsSubdir, extraEnv);
+			r = new CybriaServerRunner(toolsSubdir, extraEnv, () => this.modelPaths());
 			this.serviceRunners.set(toolsSubdir, r);
 		}
 		return r;

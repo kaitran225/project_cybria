@@ -1,0 +1,45 @@
+{
+  "profiles": {
+    "kai-note": {
+      "name": "Kai Note",
+      "description": "Laptop — Intel UHD, RTX 3050 4GB, 16GB RAM",
+      "gpu_vram_gb": 4,
+      "system_ram_gb": 16,
+      "hide_tight": true,
+      "hide_marginal": true,
+      "default_active_models": {
+        "llm": "qwen2.5-3b-instruct",
+        "novel": "ministral-3-3b-novel",
+        "summarize": "bart-large-cnn",
+        "tts": "moss-tts-nano",
+        "image": "dreamshaper-8"
+      },
+      "hidden_on_profile": [
+        "gemma-4-12b-agentic-gguf",
+        "ornith-1.0-9b",
+        "wanabi-novelist-12b",
+        "nqlsg-qwen3-14b-novel",
+        "higgs-tts-3-4b",
+        "qwen-lightning",
+        "heartsync-nsfw",
+        "nsfw-gen-v2"
+      ]
+    },
+    "kyroth-workstation": {
+      "name": "Kyroth Workstation",
+      "description": "Desktop — RTX 4060 8GB, 24GB RAM",
+      "gpu_vram_gb": 8,
+      "system_ram_gb": 24,
+      "hide_tight": false,
+      "hide_marginal": true,
+      "default_active_models": {
+        "llm": "gemma-4-12b-agentic-gguf",
+        "novel": "wanabi-novelist-12b",
+        "summarize": "bart-large-cnn",
+        "tts": "moss-tts-nano",
+        "image": "qwen-lightning"
+      },
+      "hidden_on_profile": []
+    }
+  }
+}

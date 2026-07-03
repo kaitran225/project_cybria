@@ -2,83 +2,45 @@
 
 from __future__ import annotations
 
-import json
-import os
+import sys
 from pathlib import Path
 
-_TOOLS_DIR = Path(__file__).resolve().parent
-_REPO_TOOLS = _TOOLS_DIR.parent
-_CONFIG_PATH = _REPO_TOOLS / "model-paths.json"
+_REPO_TOOLS = Path(__file__).resolve().parent.parent
+if str(_REPO_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_REPO_TOOLS))
 
-_DEFAULTS = {
-    "root": r"G:\.models",
-    "loras": r"G:\.models\LoRa",
-    "huggingface": r"G:\.models\Qwen",
-    "llm": r"G:\.models\llm",
-    "tts": r"G:\.models\tts",
-    "summarization": r"G:\.models\summarization",
-}
+from model_paths_lib import (
+    apply_huggingface_env,
+    ensure_model_dirs,
+    get_path,
+    hub_cache_dir,
+    load_model_paths,
+)
 
-
-def load_model_paths() -> dict[str, str]:
-    paths = dict(_DEFAULTS)
-    if _CONFIG_PATH.is_file():
-        try:
-            with _CONFIG_PATH.open(encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                for key, raw in data.items():
-                    if isinstance(raw, str) and raw.strip():
-                        paths[key] = raw.strip()
-        except (OSError, json.JSONDecodeError):
-            pass
-    return paths
-
-
-def _hub_cache_dir(hf_path: Path) -> Path:
-    """Use existing HF hub layout (models--* at root) or default …/hub."""
-    if any(hf_path.glob("models--*")):
-        return hf_path
-    hub = hf_path / "hub"
-    if hub.is_dir() and any(hub.glob("models--*")):
-        return hub
-    return hub
+__all__ = [
+    "apply_huggingface_env",
+    "ensure_model_dirs",
+    "get_path",
+    "hub_cache_dir",
+    "huggingface_home",
+    "huggingface_hub_cache",
+    "load_model_paths",
+    "lora_dir",
+    "model_root",
+]
 
 
 def model_root() -> Path:
-    return Path(load_model_paths()["root"])
+    return get_path("root")
 
 
 def lora_dir() -> Path:
-    raw = os.environ.get("QWEN_LORA_DIR", "").strip()
-    if raw:
-        return Path(raw)
-    return Path(load_model_paths()["loras"])
+    return get_path("loras", "QWEN_LORA_DIR")
 
 
 def huggingface_home() -> Path:
-    return Path(load_model_paths()["huggingface"])
+    return get_path("huggingface")
 
 
 def huggingface_hub_cache() -> Path:
-    return _hub_cache_dir(huggingface_home())
-
-
-def ensure_model_dirs() -> None:
-    paths = load_model_paths()
-    for p in paths.values():
-        Path(p).mkdir(parents=True, exist_ok=True)
-    huggingface_hub_cache().mkdir(parents=True, exist_ok=True)
-
-
-def apply_huggingface_env() -> Path:
-    """Point Hugging Face / diffusers downloads at the configured cache."""
-    hf_home = huggingface_home()
-    hub = huggingface_hub_cache()
-    hf_home.mkdir(parents=True, exist_ok=True)
-    hub.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HF_HOME", str(load_model_paths()["root"]))
-    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hub))
-    os.environ.setdefault("TRANSFORMERS_CACHE", str(hub))
-    os.environ.setdefault("DIFFUSERS_CACHE", str(hub))
-    return hub
+    return hub_cache_dir(huggingface_home())

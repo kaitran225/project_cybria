@@ -10,6 +10,10 @@ import { ModelSwitcherView, VIEW_TYPE_MODEL_SWITCHER } from "./ModelSwitcherView
 import type { ModelSlot } from "./catalog";
 import { CYBRIA_BASE_URL, CYBRIA_PORT } from "./servers";
 import { DEFAULT_SETTINGS, type CoreViewTab, type CybriaCoreSettings } from "./settings";
+import { catalogForProfile, listHardwareProfiles, remapActiveModelsForProfile } from "./hardware-profiles";
+import type { HardwareProfileId } from "./hardware-profiles";
+import { readModelPathsFile, resolveModelPaths, syncModelPathsFile } from "./model-paths";
+import { repoRootFromApp } from "./vault";
 
 export default class CybriaCorePlugin extends Plugin {
 	settings: CybriaCoreSettings = { ...DEFAULT_SETTINGS };
@@ -93,16 +97,6 @@ export default class CybriaCorePlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "summarize-vault-topic",
-			name: "Summarize vault topic (semantic)",
-			callback: () => {
-				void this.activateSwitcher("apps", "novel").then(() => {
-					this.getSwitcherView()?.getAppsHost().getNovelPane().setSummarizeQuery("");
-				});
-			},
-		});
-
-		this.addCommand({
 			id: "speak-selection",
 			name: "Speak selection",
 			editorCallback: (editor) => {
@@ -159,11 +153,29 @@ export default class CybriaCorePlugin extends Plugin {
 			baseUrl: data?.baseUrl?.trim() || legacyBase || DEFAULT_SETTINGS.baseUrl,
 		};
 		this.settings = await migrateSatelliteSettings(this.app, partial);
+
+		if (!this.settings.modelPaths.root.trim()) {
+			const imported = readModelPathsFile(repoRootFromApp(this.app));
+			if (imported) {
+				this.settings.modelPaths = imported;
+			}
+		}
 	}
 
 	async saveSettings(): Promise<void> {
+		const paths = resolveModelPaths(this.settings.modelPaths);
+		syncModelPathsFile(repoRootFromApp(this.app), paths);
 		await this.saveData(this.settings);
 		this.refreshImagePane();
+		this.getSwitcherView()?.refreshModelSelectsForProfile();
+	}
+
+	applyHardwareProfile(profileId: HardwareProfileId): void {
+		this.settings.hardwareProfile = profileId;
+		this.settings.activeModels = remapActiveModelsForProfile(
+			this.settings.activeModels,
+			profileId
+		);
 	}
 
 	async activateSwitcher(tab: CoreViewTab = "dashboard", appId?: AppId): Promise<void> {
@@ -286,6 +298,21 @@ class CybriaCoreSettingTab extends PluginSettingTab {
 		});
 
 		new Setting(containerEl)
+			.setName("Hardware profile")
+			.setDesc("Filters models by GPU VRAM and RAM. Hides tight / OOM-risk models on weaker profiles.")
+			.addDropdown((d) => {
+				for (const p of listHardwareProfiles()) {
+					d.addOption(p.id, `${p.name} — ${p.description}`);
+				}
+				d.setValue(this.plugin.settings.hardwareProfile);
+				d.onChange(async (v) => {
+					this.plugin.applyHardwareProfile(v as HardwareProfileId);
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Open dashboard on startup")
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.openDashboardOnStartup).onChange(async (v) => {
@@ -309,12 +336,44 @@ class CybriaCoreSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Gateway tools path")
+			.setDesc("Override path to .tools/cybria-server. Leave empty to auto-detect from vault location.")
 			.addText((t) =>
 				t.setValue(this.plugin.settings.toolsPath).onChange(async (v) => {
 					this.plugin.settings.toolsPath = v.trim();
 					await this.plugin.saveSettings();
 				})
 			);
+
+		containerEl.createEl("h3", { text: "Model storage" });
+		containerEl.createEl("p", {
+			text: "Absolute paths for downloaded models. Set the root folder; subfolders are created automatically unless overridden.",
+			cls: "setting-item-description",
+		});
+
+		const modelPathFields: Array<{ key: keyof CybriaCoreSettings["modelPaths"]; label: string; desc?: string }> = [
+			{ key: "root", label: "Model root", desc: "e.g. D:\\Models or G:\\.models" },
+			{ key: "loras", label: "LoRA folder", desc: "Default: <root>\\LoRa" },
+			{ key: "huggingface", label: "Hugging Face / diffusion", desc: "Default: <root>\\Qwen" },
+			{ key: "llm", label: "LLM (GGUF)", desc: "Default: <root>\\llm" },
+			{ key: "tts", label: "TTS models", desc: "Default: <root>\\tts" },
+			{ key: "summarization", label: "Summarization models", desc: "Default: <root>\\summarization" },
+		];
+
+		for (const field of modelPathFields) {
+			new Setting(containerEl)
+				.setName(field.label)
+				.setDesc(field.desc ?? "")
+				.addText((t) => {
+					const resolved = resolveModelPaths(this.plugin.settings.modelPaths);
+					const placeholder = field.key === "root" ? "" : resolved[field.key];
+					t.setPlaceholder(placeholder)
+						.setValue(this.plugin.settings.modelPaths[field.key])
+						.onChange(async (v) => {
+							this.plugin.settings.modelPaths[field.key] = v.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+		}
 
 		new Setting(containerEl)
 			.setName("Terminal height")

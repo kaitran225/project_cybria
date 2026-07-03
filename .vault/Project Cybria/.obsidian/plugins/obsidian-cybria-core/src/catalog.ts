@@ -12,6 +12,8 @@ export interface CatalogModel {
 	server: CybriaServiceKey;
 	vram: VramClass;
 	runnable: "yes" | "tight" | "marginal";
+	minVramGb?: number;
+	minRamGb?: number;
 	sizeGb?: number;
 	note?: string;
 }
@@ -24,8 +26,10 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "heavy",
 		runnable: "yes",
+		minVramGb: 6,
+		minRamGb: 16,
 		sizeGb: 7.5,
-		note: "Chat / agentic coding",
+		note: "Chat / agentic coding — needs 6GB+ VRAM",
 	},
 	{
 		id: "ornith-1.0-9b",
@@ -34,8 +38,10 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "heavy",
 		runnable: "yes",
+		minVramGb: 6,
+		minRamGb: 16,
 		sizeGb: 7,
-		note: "Chat / agentic coding",
+		note: "Chat / agentic coding — needs 6GB+ VRAM",
 	},
 	{
 		id: "qwen2.5-3b-instruct",
@@ -44,8 +50,10 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 2,
+		minRamGb: 8,
 		sizeGb: 2,
-		note: "4GB-VRAM chat test",
+		note: "4GB-VRAM chat",
 	},
 	{
 		id: "wanabi-novelist-12b",
@@ -54,8 +62,10 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "heavy",
 		runnable: "yes",
+		minVramGb: 6,
+		minRamGb: 16,
 		sizeGb: 7.6,
-		note: "Novel writing",
+		note: "Novel writing — needs 6GB+ VRAM",
 	},
 	{
 		id: "ministral-3-3b-novel",
@@ -64,6 +74,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 2,
+		minRamGb: 8,
 		sizeGb: 2.15,
 		note: "Mistral 3B instruct — 4GB-VRAM novel",
 	},
@@ -74,6 +86,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "llm",
 		vram: "heavy",
 		runnable: "tight",
+		minVramGb: 8,
+		minRamGb: 20,
 		sizeGb: 9.1,
 		note: "Novel writing — tight on 8GB",
 	},
@@ -84,6 +98,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "summarize",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 0,
+		minRamGb: 6,
 		sizeGb: 1.6,
 	},
 	{
@@ -93,6 +109,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "summarize",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 0,
+		minRamGb: 6,
 		sizeGb: 2.3,
 	},
 	{
@@ -102,6 +120,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "tts",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 2,
+		minRamGb: 8,
 		sizeGb: 0.4,
 		note: "0.1B — 4GB-VRAM / CPU friendly",
 	},
@@ -112,6 +132,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "tts",
 		vram: "heavy",
 		runnable: "tight",
+		minVramGb: 6,
+		minRamGb: 16,
 		sizeGb: 5,
 		note: "Heavy — needs 6GB+ VRAM",
 	},
@@ -122,8 +144,10 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "image",
 		vram: "light",
 		runnable: "yes",
+		minVramGb: 2,
+		minRamGb: 8,
 		sizeGb: 2,
-		note: "Lightweight SD1.5 — fast on 4GB, uncensored",
+		note: "Lightweight SD1.5 — fast on 4GB",
 	},
 	{
 		id: "qwen-lightning",
@@ -132,6 +156,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "image",
 		vram: "heavy",
 		runnable: "tight",
+		minVramGb: 8,
+		minRamGb: 16,
 		note: "Fast image gen — 8GB tuned",
 	},
 	{
@@ -141,6 +167,8 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "image",
 		vram: "heavy",
 		runnable: "tight",
+		minVramGb: 6,
+		minRamGb: 16,
 		note: "SDXL — slow on 4GB (6GB+ VRAM)",
 	},
 	{
@@ -150,18 +178,12 @@ export const MODEL_CATALOG: CatalogModel[] = [
 		server: "image",
 		vram: "heavy",
 		runnable: "tight",
+		minVramGb: 6,
+		minRamGb: 16,
 		sizeGb: 6,
 		note: "SDXL — slow on 4GB (6GB+ VRAM)",
 	},
 ];
-
-export const DEFAULT_ACTIVE_MODELS: Record<ModelSlot, string> = {
-	llm: "gemma-4-12b-agentic-gguf",
-	novel: "wanabi-novelist-12b",
-	summarize: "bart-large-cnn",
-	tts: "moss-tts-nano",
-	image: "dreamshaper-8",
-};
 
 export const SLOT_LABELS: Record<ModelSlot, string> = {
 	llm: "LLM Chat",
@@ -170,10 +192,6 @@ export const SLOT_LABELS: Record<ModelSlot, string> = {
 	tts: "Text-to-Speech",
 	image: "Image Generation",
 };
-
-export function catalogForSlot(slot: ModelSlot): CatalogModel[] {
-	return MODEL_CATALOG.filter((m) => m.slot === slot);
-}
 
 export function getCatalogModel(id: string): CatalogModel | undefined {
 	return MODEL_CATALOG.find((m) => m.id === id);

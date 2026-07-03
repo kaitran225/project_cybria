@@ -105,10 +105,10 @@ def _service_running(name: str) -> bool:
 
 def _model_path_env() -> dict[str, str]:
     try:
-        llm_path = str(TOOLS / "cybria-llm")
-        if llm_path not in sys.path:
-            sys.path.insert(0, llm_path)
-        from model_paths import ensure_model_dirs, model_path_env as mpe
+        tools_path = str(TOOLS)
+        if tools_path not in sys.path:
+            sys.path.insert(0, tools_path)
+        from model_paths_lib import ensure_model_dirs, model_path_env as mpe
 
         ensure_model_dirs()
         return {k: str(v) for k, v in mpe().items()}

@@ -1,5 +1,6 @@
 {
-  "hardware_note": "Profiled for RTX 4060 8GB. runnable_local values: yes | tight | marginal | no",
+  "hardware_note": "Use hardware profiles in Cybria Core settings. runnable_local: yes | tight | marginal | no",
+  "hardware_profiles": ".tools/hardware-profiles.json",
   "glm_5_2": {
     "full_repo": "zai-org/GLM-5.2",
     "runnable_on_8gb_vram": false,
@@ -58,7 +59,7 @@
       "runnable_local": "marginal",
       "min_vram_gb": 8,
       "integrated": "catalog_only",
-      "pull": "hf download Qwen/Qwen-Image-Edit-2511 --local-dir G:/.models/Qwen",
+      "pull": "hf download Qwen/Qwen-Image-Edit-2511 --local-dir <huggingface from Cybria Core settings>",
       "note": "Image-to-image / edit. Needs recent diffusers + CPU offload on 8GB. Not wired into plugin yet.",
       "url": "https://huggingface.co/Qwen/Qwen-Image-Edit-2511"
     },
@@ -72,7 +73,7 @@
       "runnable_local": "yes",
       "min_vram_gb": 2,
       "integrated": "cybria-tts",
-      "pull": "hf download OpenMOSS-Team/MOSS-TTS-Nano --local-dir G:/.models/tts/moss-tts-nano",
+      "pull": "hf download OpenMOSS-Team/MOSS-TTS-Nano --local-dir <tts from Cybria Core settings>/moss-tts-nano",
       "serve": "http://127.0.0.1:2253/tts",
       "note": "0.1B multilingual TTS. Built-in voices (Ava, Junhao, etc.). 4GB-VRAM friendly.",
       "url": "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano"
@@ -87,7 +88,7 @@
       "runnable_local": "tight",
       "min_vram_gb": 6,
       "integrated": "cybria-tts",
-      "pull": "hf download bosonai/higgs-tts-3-4b --local-dir G:/.models/tts/higgs-tts-3-4b",
+      "pull": "hf download bosonai/higgs-tts-3-4b --local-dir <tts from Cybria Core settings>/higgs-tts-3-4b",
       "serve": "http://127.0.0.1:2253/tts",
       "note": "~4B speech model. Heavy — needs 6GB+ VRAM.",
       "url": "https://huggingface.co/bosonai/higgs-tts-3-4b"
@@ -102,6 +103,8 @@
       "runnable_local": "yes",
       "recommended_quant": "Q4_K_M",
       "size_gb": 7.5,
+      "min_vram_gb": 6,
+      "min_ram_gb": 16,
       "integrated": "cybria-llm",
       "pull": "python .tools/cybria-llm/download.py gemma-4-12b-agentic-gguf",
       "serve": "http://127.0.0.1:2253/llm",

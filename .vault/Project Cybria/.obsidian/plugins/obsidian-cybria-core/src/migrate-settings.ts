@@ -1,26 +1,23 @@
 import { App } from "obsidian";
 import type { CybriaCoreSettings } from "./settings";
-import { DEFAULT_SETTINGS } from "./settings";
-import { getCatalogModel } from "./catalog";
+import { DEFAULT_SETTINGS, EMPTY_MODEL_PATHS } from "./settings";
+import { remapActiveModelsForProfile } from "./hardware-profiles";
 
 const DEPRECATED_MODEL_IDS: Record<string, string> = {
 	"qwen2.5-3b-novel": "ministral-3-3b-novel",
 };
 
-function remapActiveModels(active: CybriaCoreSettings["activeModels"]): CybriaCoreSettings["activeModels"] {
+function remapActiveModels(
+	active: CybriaCoreSettings["activeModels"],
+	profileId: CybriaCoreSettings["hardwareProfile"]
+): CybriaCoreSettings["activeModels"] {
 	const out = { ...active };
 	for (const slot of Object.keys(out) as (keyof typeof out)[]) {
 		const id = out[slot];
 		const replacement = DEPRECATED_MODEL_IDS[id];
-		if (replacement) {
-			out[slot] = replacement;
-			continue;
-		}
-		if (!getCatalogModel(id)) {
-			out[slot] = DEFAULT_SETTINGS.activeModels[slot];
-		}
+		if (replacement) out[slot] = replacement;
 	}
-	return out;
+	return remapActiveModelsForProfile(out, profileId);
 }
 
 async function readPluginData(app: App, pluginId: string): Promise<Record<string, unknown> | null> {
@@ -42,15 +39,20 @@ export async function migrateSatelliteSettings(
 	const merged: CybriaCoreSettings = {
 		...DEFAULT_SETTINGS,
 		...current,
-		activeModels: remapActiveModels({
-			...DEFAULT_SETTINGS.activeModels,
-			...(current.activeModels ?? {}),
-		}),
+		hardwareProfile: current.hardwareProfile ?? DEFAULT_SETTINGS.hardwareProfile,
+		activeModels: remapActiveModels(
+			{ ...DEFAULT_SETTINGS.activeModels, ...(current.activeModels ?? {}) },
+			current.hardwareProfile ?? DEFAULT_SETTINGS.hardwareProfile
+		),
 		llm: { ...DEFAULT_SETTINGS.llm, ...(current.llm ?? {}) },
 		novel: { ...DEFAULT_SETTINGS.novel, ...(current.novel ?? {}) },
 		audio: { ...DEFAULT_SETTINGS.audio, ...(current.audio ?? {}) },
 		image: { ...DEFAULT_SETTINGS.image, ...(current.image ?? {}) },
 		imageRecentOutputs: current.imageRecentOutputs ?? DEFAULT_SETTINGS.imageRecentOutputs,
+		modelPaths: {
+			...EMPTY_MODEL_PATHS,
+			...(current.modelPaths ?? {}),
+		},
 	};
 
 	if ((merged.activeViewTab as string) === "models") {
@@ -65,7 +67,6 @@ export async function migrateSatelliteSettings(
 	const novelData = await readPluginData(app, "cybria-novel");
 	if (novelData) {
 		Object.assign(merged.novel, {
-			summarizeMode: novelData.summarizeMode,
 			summariesFolder: novelData.summariesFolder,
 			writePrompt: novelData.writePrompt,
 			activeTab: novelData.activeTab,
