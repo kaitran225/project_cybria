@@ -9,7 +9,7 @@ import { migrateSatelliteSettings } from "./migrate-settings";
 import { ModelSwitcherView, VIEW_TYPE_MODEL_SWITCHER } from "./ModelSwitcherView";
 import { remapActiveModelsForProfile } from "./hardware-profiles";
 import type { HardwareProfileId } from "./hardware-profiles";
-import { readModelPathsFile, resolveModelPaths, syncModelPathsFile } from "./model-paths";
+import { readModelPathsFile, resolveModelPaths, sanitizeModelPaths, syncModelPathsFile } from "./model-paths";
 import { repoRootFromApp } from "./vault";
 import { CybriaCoreSettingTab } from "./settings-tab";
 import { DEFAULT_SETTINGS, type CoreViewTab, type CybriaCoreSettings } from "./settings";
@@ -73,11 +73,13 @@ export default class CybriaCorePlugin extends Plugin {
 				this.settings.modelPaths = imported;
 			}
 		}
+		this.settings.modelPaths = sanitizeModelPaths(this.settings.modelPaths);
+		syncModelPathsFile(repoRootFromApp(this.app), this.settings.modelPaths);
 	}
 
 	async saveSettings(): Promise<void> {
-		const paths = resolveModelPaths(this.settings.modelPaths);
-		syncModelPathsFile(repoRootFromApp(this.app), paths);
+		this.settings.modelPaths = sanitizeModelPaths(this.settings.modelPaths);
+		syncModelPathsFile(repoRootFromApp(this.app), this.settings.modelPaths);
 		await this.saveData(this.settings);
 		this.refreshImagePane();
 		this.getSwitcherView()?.refreshModelSelectsForProfile();

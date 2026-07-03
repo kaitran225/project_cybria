@@ -45,25 +45,47 @@ def _derive_from_root(root: str) -> dict[str, str]:
     }
 
 
+def _is_reachable(p: Path) -> bool:
+    try:
+        if p.is_dir():
+            return True
+        anchor = p.anchor
+        if anchor and not Path(anchor).exists():
+            return False
+        p.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _effective_root(raw_root: str) -> str:
+    expanded = expand_path(raw_root)
+    if expanded and _is_reachable(Path(expanded)):
+        return expanded
+    return str(default_model_root())
+
+
 def load_model_paths() -> dict[str, str]:
     paths: dict[str, str] = {k: "" for k in _KEYS}
     if not _CONFIG_PATH.is_file():
-        return paths
+        return _derive_from_root(str(default_model_root()))
+
     try:
         with _CONFIG_PATH.open(encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return paths
+        return _derive_from_root(str(default_model_root()))
     if not isinstance(data, dict):
-        return paths
+        return _derive_from_root(str(default_model_root()))
 
-    root = expand_path(str(data.get("root", "")))
-    if root:
-        paths = _derive_from_root(root)
+    root = _effective_root(str(data.get("root", "")))
+    paths = _derive_from_root(root)
     for key in _KEYS:
         raw = data.get(key)
         if isinstance(raw, str) and raw.strip():
-            paths[key] = expand_path(raw)
+            expanded = expand_path(raw)
+            if key == "root" or _is_reachable(Path(expanded)):
+                paths[key] = expanded
     return paths
 
 

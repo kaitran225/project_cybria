@@ -5,7 +5,7 @@ import { SummarizeClient } from "./clients/summarize";
 import { TtsClient } from "./clients/tts";
 import type { ModelSlot } from "./catalog";
 import { apiBase } from "./http";
-import { resolveModelPaths, type ModelPathsConfig } from "./model-paths";
+import { resolveModelPaths, sanitizeModelPaths, type ModelPathsConfig } from "./model-paths";
 import { ModelSwitcher } from "./model-switcher";
 import {
 	CybriaServerRunner,
@@ -83,7 +83,7 @@ export class CybriaCoreApi {
 	}
 
 	modelPaths(): ModelPathsConfig {
-		return resolveModelPaths(this.getSettings().modelPaths);
+		return sanitizeModelPaths(this.getSettings().modelPaths);
 	}
 
 	resolveToolsDir(target: CybriaServerKey, override = ""): string {

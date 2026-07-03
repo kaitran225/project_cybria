@@ -2,7 +2,7 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import { CYBRIA_BASE_URL, CYBRIA_PORT } from "./servers";
 import type { HardwareProfileId } from "./hardware-profiles";
 import { listHardwareProfiles } from "./hardware-profiles";
-import { resolveModelPaths } from "./model-paths";
+import { defaultPortableModelRoot, resolveModelPaths } from "./model-paths";
 import type CybriaCorePlugin from "./main";
 import type { CybriaCoreSettings } from "./settings";
 
@@ -94,7 +94,10 @@ export class CybriaCoreSettingTab extends PluginSettingTab {
 				.setDesc(field.desc ?? "")
 				.addText((t) => {
 					const resolved = resolveModelPaths(this.plugin.settings.modelPaths);
-					const placeholder = field.key === "root" ? "" : resolved[field.key];
+					const placeholder =
+						field.key === "root"
+							? defaultPortableModelRoot()
+							: resolved[field.key];
 					t.setPlaceholder(placeholder)
 						.setValue(this.plugin.settings.modelPaths[field.key])
 						.onChange(async (v) => {

@@ -16,6 +16,43 @@ export function defaultModelRoot(): string {
 	return path.join(os.homedir(), ".models");
 }
 
+/** Default stored in settings / model-paths.json (portable across machines). */
+export function defaultPortableModelRoot(): string {
+	return process.platform === "win32" ? "%USERPROFILE%\\.models" : "~/.models";
+}
+
+/** True when the expanded path exists or can be created (drive present on Windows). */
+export function isModelRootReachable(raw: string): boolean {
+	const expanded = expandModelPath(raw);
+	if (!expanded) return false;
+	try {
+		if (existsSync(expanded)) return true;
+		const root = path.parse(expanded).root;
+		if (root && !existsSync(root)) return false;
+		mkdirSync(expanded, { recursive: true });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Prefer `%USERPROFILE%\\.models` / `~/.models` when that is the resolved path. */
+export function portableModelRoot(expandedRoot: string): string {
+	const normalized = path.normalize(expandModelPath(expandedRoot));
+	const homeModels = path.normalize(defaultModelRoot());
+	if (normalized === homeModels) return defaultPortableModelRoot();
+	return normalized;
+}
+
+/** Drop unreachable roots (e.g. old `G:\\.models`) and fall back to the portable default. */
+export function sanitizeModelPaths(input: Partial<ModelPathsConfig> | undefined): ModelPathsConfig {
+	const resolved = resolveModelPaths(input);
+	if (!resolved.root.trim() || !isModelRootReachable(resolved.root)) {
+		return derivedModelPaths(defaultPortableModelRoot());
+	}
+	return resolved;
+}
+
 /** Expand `~`, `%VAR%`, and `${VAR}` in a path string. */
 export function expandModelPath(raw: string): string {
 	let s = raw.trim();
@@ -91,19 +128,21 @@ export function readModelPathsFile(repoRoot: string): ModelPathsConfig | null {
 	try {
 		if (!existsSync(configPath)) return null;
 		const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<ModelPathsConfig>;
-		const resolved = resolveModelPaths(raw);
+		const resolved = sanitizeModelPaths(raw);
 		return resolved.root ? resolved : null;
 	} catch {
 		return null;
 	}
 }
 
-/** Write `.tools/model-paths.json` for Python / PowerShell start scripts. */
+/** Write `.tools/model-paths.json` for Python services (minimal, portable root). */
 export function syncModelPathsFile(repoRoot: string, paths: ModelPathsConfig): void {
-	if (!repoRoot.trim() || !paths.root.trim()) return;
-	const resolved = resolveModelPaths(paths);
+	const resolved = sanitizeModelPaths(paths);
+	if (!repoRoot.trim() || !resolved.root.trim()) return;
 	const derived = derivedModelPaths(resolved.root);
-	const payload: Partial<ModelPathsConfig> = { root: resolved.root };
+	const payload: Partial<ModelPathsConfig> = {
+		root: portableModelRoot(resolved.root),
+	};
 	for (const key of SUBPATH_KEYS) {
 		if (resolved[key] !== derived[key]) {
 			payload[key] = resolved[key];

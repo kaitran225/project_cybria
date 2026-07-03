@@ -22,10 +22,25 @@ def venv_pip(service_dir: Path) -> Path:
     return service_dir / ".venv" / "bin" / "pip"
 
 
-def find_system_python() -> list[str]:
+def _venv_create_commands(service_dir: Path) -> list[list[str]]:
+    venv_path = str(service_dir / ".venv")
     if sys.platform == "win32":
-        return ["py", "-3.12"]
-    return ["python3", "-m", "venv"]  # handled separately for unix
+        cmds: list[list[str]] = [
+            ["py", f"-{ver}", "-m", "venv", venv_path]
+            for ver in ("3.13", "3.12", "3.11", "3.10", "3")
+        ]
+        cmds.extend(
+            [
+                ["py", "-m", "venv", venv_path],
+                ["python", "-m", "venv", venv_path],
+                ["python3", "-m", "venv", venv_path],
+            ]
+        )
+        return cmds
+    return [
+        ["python3", "-m", "venv", venv_path],
+        ["python", "-m", "venv", venv_path],
+    ]
 
 
 def ensure_venv(service_dir: Path, *, python_version: str = "3.12") -> Path:
@@ -34,15 +49,52 @@ def ensure_venv(service_dir: Path, *, python_version: str = "3.12") -> Path:
         return py
 
     service_dir.mkdir(parents=True, exist_ok=True)
+    # Prefer detected version, then common fallbacks (user may only have 3.13, etc.)
+    preferred = (
+        [f"3.{python_version.split('.')[-1]}"]
+        if python_version.startswith("3.")
+        else [python_version]
+    )
+    seen: set[tuple[str, ...]] = set()
+    commands: list[list[str]] = []
+    venv_path = str(service_dir / ".venv")
     if sys.platform == "win32":
-        cmd = ["py", f"-{python_version}", "-m", "venv", str(service_dir / ".venv")]
+        for ver in (*preferred, "3.13", "3.12", "3.11", "3.10", "3"):
+            cmd = ("py", f"-{ver}", "-m", "venv", venv_path)
+            if cmd not in seen:
+                seen.add(cmd)
+                commands.append(list(cmd))
+        for tail in (
+            ("py", "-m", "venv", venv_path),
+            ("python", "-m", "venv", venv_path),
+            ("python3", "-m", "venv", venv_path),
+        ):
+            if tail not in seen:
+                seen.add(tail)
+                commands.append(list(tail))
     else:
-        cmd = ["python3", "-m", "venv", str(service_dir / ".venv")]
-    print(f"[cybria] creating venv: {' '.join(cmd)}", flush=True)
-    subprocess.run(cmd, cwd=service_dir, check=True)
-    if not py.is_file():
-        raise FileNotFoundError(f"venv python not found after create: {py}")
-    return py
+        commands = _venv_create_commands(service_dir)
+
+    last_err: subprocess.CalledProcessError | None = None
+    for cmd in commands:
+        print(f"[cybria] trying venv: {' '.join(cmd)}", flush=True)
+        try:
+            subprocess.run(cmd, cwd=service_dir, check=True, capture_output=True, text=True)
+            if py.is_file():
+                print(f"[cybria] venv ready: {py}", flush=True)
+                return py
+        except subprocess.CalledProcessError as exc:
+            last_err = exc
+            err = (exc.stderr or exc.stdout or "").strip()
+            if err:
+                print(f"[cybria]   skipped: {err.splitlines()[-1]}", flush=True)
+
+    hint = (
+        "Install Python 3.10+ and ensure `py` or `python` is on PATH."
+        if sys.platform == "win32"
+        else "Install python3 (3.10+) and ensure it is on PATH."
+    )
+    raise RuntimeError(f"Could not create venv in {service_dir}. {hint}") from last_err
 
 
 def pip_install(

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import * as path from "path";
-import { hubCacheDir, modelPathEnv, readModelPathsFile, resolveModelPaths, type ModelPathsConfig } from "./model-paths";
+import { hubCacheDir, modelPathEnv, readModelPathsFile, resolveModelPaths, sanitizeModelPaths, type ModelPathsConfig } from "./model-paths";
 import { repoRootFromTools } from "./vault";
 
 export interface ReqCheckResult {
@@ -92,9 +92,9 @@ export class CybriaServerRunner {
 	}
 
 	private resolveModelPaths(toolsDir: string): ModelPathsConfig {
-		if (this.getModelPaths) return this.getModelPaths();
+		if (this.getModelPaths) return sanitizeModelPaths(this.getModelPaths());
 		const fromFile = readModelPathsFile(repoRootFromTools(toolsDir));
-		return fromFile ?? resolveModelPaths(undefined);
+		return sanitizeModelPaths(fromFile ?? resolveModelPaths(undefined));
 	}
 
 	resolveToolsDir(vaultBasePath: string, override = ""): string {
@@ -191,17 +191,65 @@ export class CybriaServerRunner {
 		});
 	}
 
+	private probePython(
+		cmd: string,
+		args: string[],
+		cwd: string
+	): Promise<boolean> {
+		return new Promise((resolve) => {
+			const proc = spawn(cmd, [...args, "--version"], { cwd, windowsHide: true });
+			proc.on("error", () => resolve(false));
+			proc.on("close", (code) => resolve(code === 0));
+		});
+	}
+
+	/** Pick a system Python that can create venvs (3.10+). */
+	private async resolveSystemPython(
+		onLine: (line: string) => void
+	): Promise<{ cmd: string; baseArgs: string[] }> {
+		const cwd = process.cwd();
+		const candidates: { cmd: string; baseArgs: string[] }[] =
+			process.platform === "win32"
+				? [
+						{ cmd: "py", baseArgs: ["-3.13"] },
+						{ cmd: "py", baseArgs: ["-3.12"] },
+						{ cmd: "py", baseArgs: ["-3.11"] },
+						{ cmd: "py", baseArgs: ["-3.10"] },
+						{ cmd: "py", baseArgs: ["-3"] },
+						{ cmd: "py", baseArgs: [] },
+						{ cmd: "python", baseArgs: [] },
+						{ cmd: "python3", baseArgs: [] },
+					]
+				: [
+						{ cmd: "python3", baseArgs: [] },
+						{ cmd: "python", baseArgs: [] },
+					];
+
+		for (const c of candidates) {
+			if (await this.probePython(c.cmd, c.baseArgs, cwd)) {
+				const label = c.baseArgs.length ? `${c.cmd} ${c.baseArgs.join(" ")}` : c.cmd;
+				onLine(`[venv] using ${label}`);
+				return c;
+			}
+		}
+		throw new Error(
+			process.platform === "win32"
+				? "No Python found. Install Python 3.10+ or ensure `py` / `python` is on PATH."
+				: "No Python found. Install python3 (3.10+) and ensure it is on PATH."
+		);
+	}
+
 	async ensureVenv(toolsDir: string, onLine: (line: string) => void): Promise<void> {
 		const venvPy = this.pythonExe(toolsDir);
 		if (existsSync(venvPy)) return;
-		const isWin = process.platform === "win32";
-		const cmd = isWin ? "py" : "python3";
-		const args = isWin
-			? ["-3.12", "-m", "venv", ".venv"]
-			: ["-m", "venv", ".venv"];
+		const { cmd, baseArgs } = await this.resolveSystemPython(onLine);
+		const args = [...baseArgs, "-m", "venv", ".venv"];
 		onLine(`$ ${cmd} ${args.join(" ")}`);
 		const code = await this.runCommand(cmd, args, toolsDir, onLine);
 		if (code !== 0) throw new Error(`venv create failed (exit ${code})`);
+		if (!existsSync(venvPy)) {
+			throw new Error(`venv created but python not found: ${venvPy}`);
+		}
 	}
 
 	async checkRequirements(
